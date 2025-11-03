@@ -9,10 +9,12 @@ import (
 func main() {
 	defer func() {
 		if err := recover(); err != nil {
-			color.Error.Println("[Start Server Err!!!] ", err)
+			color.Error.Println("启动服务错误: ", err)
 		}
 	}()
-	color.Green.Printf("%s\n", "  _____                     _ _   \n | ____|_ __  _   _ ___  __| | |_ \n |  _| | '_ \\| | | / __|/ _` | __|\n | |___| |_) | |_| \\__ \\ (_| | |_ \n |_____| .__/ \\__,_|___/\\__,_|\\__|\n       |_|                        ")
-	color.Infof("Epusdt version(%s) Powered by %s %s \n", config.GetAppVersion(), "assimon", "https://github.com/assimon/epusdt")
+	color.Infof("Epusdt 版本(%s) 作者: %s %s \n", config.GetAppVersion(), "assimon", "https://github.com/assimon/epusdt")
 	bootstrap.Start()
 }
+
+// garble build -o epusdt_mix.exe -trimpath -ldflags="-s -w"
+// go run . http start

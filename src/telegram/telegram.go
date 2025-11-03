@@ -1,11 +1,13 @@
 package telegram
 
 import (
+	"time"
+
 	"github.com/assimon/luuu/config"
+	"github.com/assimon/luuu/notify"
 	"github.com/assimon/luuu/util/log"
 	tb "gopkg.in/telebot.v3"
 	"gopkg.in/telebot.v3/middleware"
-	"time"
 )
 
 var bots *tb.Bot
@@ -30,7 +32,10 @@ func BotStart() {
 		log.Sugar.Error(err.Error())
 		return
 	}
+	// 设置通知bot实例
+	notify.SetBot(bots)
 	RegisterHandle()
+	log.Sugar.Info("[Telegram] 机器人启动成功")
 	bots.Start()
 }
 
@@ -38,21 +43,13 @@ func BotStart() {
 func RegisterHandle() {
 	adminOnly := bots.Group()
 	adminOnly.Use(middleware.Whitelist(config.TgManage))
-	adminOnly.Handle(START_CMD, WalletList)
-	adminOnly.Handle(tb.OnText, OnTextMessageHandle)
-}
 
-// SendToBot 主动发送消息机器人消息
-func SendToBot(msg string) {
-	go func() {
-		user := tb.User{
-			ID: config.TgManage,
-		}
-		_, err := bots.Send(&user, msg, &tb.SendOptions{
-			ParseMode: tb.ModeHTML,
-		})
-		if err != nil {
-			log.Sugar.Error(err)
-		}
-	}()
+	// 注册命令处理器
+	adminOnly.Handle(START_CMD, ShowWalletList)
+
+	// 注册文本消息处理器
+	adminOnly.Handle(tb.OnText, OnTextMessageHandle)
+
+	// 注册回调处理器
+	adminOnly.Handle(tb.OnCallback, OnCallbackHandle)
 }

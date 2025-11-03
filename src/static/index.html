@@ -6,10 +6,57 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Epusdt - 优雅的usdt支付中间件</title>
-  <link rel="stylesheet" href="/static/reset.css">
   <style>
+	html, body, div, span, applet, object, iframe,
+	h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+	a, abbr, acronym, address, big, cite, code,
+	del, dfn, em, img, ins, kbd, q, s, samp,
+	small, strike, strong, sub, sup, tt, var,
+	b, u, i, center,
+	dl, dt, dd, ol, ul, li,
+	fieldset, form, label, legend,
+	table, caption, tbody, tfoot, thead, tr, th, td,
+	article, aside, canvas, details, embed, 
+	figure, figcaption, footer, header, hgroup, 
+	menu, nav, output, ruby, section, summary,
+	time, mark, audio, video {
+		margin: 0;
+		padding: 0;
+		border: 0;
+		font-size: 100%;
+		font: inherit;
+		vertical-align: baseline;
+	}
+	/* HTML5 display-role reset for older browsers */
+	article, aside, details, figcaption, figure, 
+	footer, header, hgroup, menu, nav, section {
+		display: block;
+	}
+	body {
+		line-height: 1;
+	  background-color: #fafbfc;
+	}
+	ol, ul {
+		list-style: none;
+	}
+	blockquote, q {
+		quotes: none;
+	}
+	blockquote:before, blockquote:after,
+	q:before, q:after {
+		content: '';
+		content: none;
+	}
+	table {
+		border-collapse: collapse;
+		border-spacing: 0;
+	}
+  b {
+    font-weight: bolder;
+}
+
     .main {
-      width: 320px;
+      width: 420px;
       margin: 0 auto;
       min-height: 100vh;
       padding-top: 20px;
@@ -41,6 +88,10 @@
       line-height: 1.5;
       margin-bottom: 15px;
     }
+	.main .gray-text strong {
+		color: #f00;
+		font-weight: bold;
+	}
 
     .main .red-text {
       font-size: 14px;
@@ -63,7 +114,11 @@
       text-align: center;
       color: #333;
       margin: 20px;
+	  
     }
+	.qr-code-container h2 span{
+	  cursor:pointer;
+	}
 
     .qr-code-container h2 small {
       color: #bebebe;
@@ -76,6 +131,7 @@
       text-align: center;
       color: #888;
       margin-bottom: 20px;
+	  cursor:pointer;
     }
 
     .qr-code {
@@ -137,8 +193,9 @@
     <div class="site">
       订单编号：{{.TradeId}}
     </div>
-    <div class="gray-text">当前USDT支付区块网络协议为TRC20</div>
-    <div class="red-text">！!到账金额需要与下方显示的金额一致，否则系統无法确认！！</div>
+    <div class="gray-text">当前USDT支付区块网络协议为 <strong>{{.ChainType}}</strong></div>
+    <div class="gray-text" id="chain-info"></div>
+    <div class="red-text"><b>到账金额</b> 需要与下方显示的 <b>金额</b>  一致，否则系統无法确认！！</div>
     <div class="red-text">尝试点击钱包地址或金额可直接复制👇</div>
     <div class="qr-code-container">
       <h2><span id="copy-amount" data-clipboard-text="{{.ActualAmount}}">{{.ActualAmount}}</span>
@@ -168,11 +225,22 @@
   </div>
 </body>
 </html>
-<script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-<script src="https://cdn.bootcdn.net/ajax/libs/jquery.qrcode/1.0/jquery.qrcode.min.js"></script>
-<script src="https://cdn.bootcdn.net/ajax/libs/clipboard.js/2.0.10/clipboard.min.js"></script>
-<script src="https://cdn.bootcdn.net/ajax/libs/layer/3.5.1/layer.min.js"></script>
+<script src="/static/jquery.min.js"></script>
+<script src="/static/jquery.qrcode.min.js"></script>
+<script src="/static/clipboard.min.js"></script>
+<script src="/static/layer.min.js"></script>
 <script>
+  // 显示链信息
+  const chainType = "{{.ChainType}}";
+  const chainInfo = {
+    'TRC20': '波场网络 - Tron',
+    'ERC20': '以太坊网络 - Ethereum',
+    'BEP20': '币安智能链 - BSC',
+    'SOLANA': 'Solana网络 - Solana',
+    'POLYGON': 'Polygon网络 - Polygon / Matic'
+  };
+  $('#chain-info').text(chainInfo[chainType] || '');
+
   // 支付时间倒计时
   function clock() {
     let timeout = new Date({{.ExpirationTime}});

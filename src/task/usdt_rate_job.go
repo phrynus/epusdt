@@ -1,12 +1,13 @@
 package task
 
 import (
+	"time"
+
 	"github.com/assimon/luuu/config"
 	"github.com/assimon/luuu/util/http_client"
 	"github.com/assimon/luuu/util/json"
 	"github.com/assimon/luuu/util/log"
 	"github.com/assimon/luuu/util/math"
-	"time"
 )
 
 const UsdtRateApiUri = "https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/chart"
@@ -40,17 +41,17 @@ func (r UsdtRateJob) Run() {
 	client := http_client.GetHttpClient()
 	resp, err := client.R().SetQueryString("id=825&range=1H&convertId=2787").SetHeader("Accept", "application/json").Get(UsdtRateApiUri)
 	if err != nil {
-		log.Sugar.Error("usdt rate get err:", err.Error())
+		log.Sugar.Error("获取USDT汇率失败:", err.Error())
 		return
 	}
 	var usdtResp UsdtRateResp
 	err = json.Cjson.Unmarshal(resp.Body(), &usdtResp)
 	if err != nil {
-		log.Sugar.Error("Unmarshal usdt resp err:", err.Error())
+		log.Sugar.Error("解析USDT响应失败:", err.Error())
 		return
 	}
 	if usdtResp.Status.ErrorCode != "0" {
-		log.Sugar.Error("usdt resp err:", usdtResp.Status.ErrorMessage)
+		log.Sugar.Error("USDT响应错误:", usdtResp.Status.ErrorMessage)
 		return
 	}
 	for _, points := range usdtResp.Data.Points {

@@ -2,6 +2,11 @@ package command
 
 import (
 	"context"
+	"net/http"
+	"os"
+	"os/signal"
+	"time"
+
 	"github.com/assimon/luuu/config"
 	"github.com/assimon/luuu/middleware"
 	"github.com/assimon/luuu/route"
@@ -12,10 +17,6 @@ import (
 	echoMiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"net/http"
-	"os"
-	"os/signal"
-	"time"
 )
 
 var httpCmd = &cobra.Command{
@@ -56,8 +57,8 @@ func HttpServerStart() {
 			log.Sugar.Error(err)
 		}
 	}()
-	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 10 seconds.
-	// Use a buffered channel to avoid missing signals as recommended for signal.Notify
+	// 等待中断信号以优雅关闭服务器，超时时间为10秒
+	// 使用缓冲通道以避免丢失信号
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, os.Kill)
 	<-quit
@@ -80,7 +81,7 @@ func MiddlewareRegister(e *echo.Echo) {
 // customHTTPErrorHandler 默认消息提示
 func customHTTPErrorHandler(err error, e echo.Context) {
 	code := http.StatusInternalServerError
-	msg := "server error"
+	msg := "服务器错误"
 	resp := &luluHttp.Response{
 		StatusCode: code,
 		Message:    msg,

@@ -10,6 +10,14 @@
 <a href="https://github.com/assimon/epusdt/releases/tag/v0.0.1"><img src="https://img.shields.io/badge/version-v0.0.1-green" alt="version v0.0.1"></a>
 </p>
 
+## 调整
+
+- [√] 支持多链（BEP20、ERC20、Polygon、Solana、TRC20）
+- [√] 去掉Redis
+- [√] Telegram
+  - [√] 生成订单(无法指定链)
+  - [√] 余额记录
+
 ## 👮‍♂️反诈提醒
 近期有高仿作者telegram实施诈骗的行为，        
 请各位用户擦亮双眼，作者从不私聊任何人提供任何收费形式的技术支持服务！    

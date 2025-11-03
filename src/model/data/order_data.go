@@ -2,18 +2,25 @@ package data
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
+
 	"github.com/assimon/luuu/model/dao"
 	"github.com/assimon/luuu/model/mdb"
 	"github.com/assimon/luuu/model/request"
-	"github.com/go-redis/redis/v8"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
-	"time"
 )
 
 var (
-	CacheWalletAddressWithAmountToTradeIdKey = "wallet:%s_%v" // 钱包_待支付金额 : 交易号
+	CacheWalletAddressWithAmountToTradeIdKey = "wallet:%s_%s_%s" // 钱包_待支付金额_链类型 : 交易号
 )
+
+// normalizeAmount 规范化金额，统一保留4位小数，避免12.31和12.3100不匹配的问题
+func normalizeAmount(amount float64) string {
+	return decimal.NewFromFloat(amount).StringFixed(4)
+}
 
 // GetOrderInfoByOrderId 通过客户订单号查询订单
 func GetOrderInfoByOrderId(orderId string) (*mdb.Orders, error) {
@@ -78,12 +85,19 @@ func UpdateOrderIsExpirationById(id uint64) error {
 	return err
 }
 
-// GetTradeIdByWalletAddressAndAmount 通过钱包地址，支付金额获取交易号
-func GetTradeIdByWalletAddressAndAmount(token string, amount float64) (string, error) {
+// DeleteOrderById 通过id删除订单
+func DeleteOrderById(id uint64) error {
+	err := dao.Mdb.Where("id = ?", id).Delete(&mdb.Orders{}).Error
+	return err
+}
+
+// GetTradeIdByWalletAddressAndAmountAndChainType 通过钱包地址、支付金额、链类型获取交易号
+func GetTradeIdByWalletAddressAndAmountAndChainType(token string, amount float64, chainType string) (string, error) {
 	ctx := context.Background()
-	cacheKey := fmt.Sprintf(CacheWalletAddressWithAmountToTradeIdKey, token, amount)
-	result, err := dao.Rdb.Get(ctx, cacheKey).Result()
-	if err == redis.Nil {
+	normalizedAmount := normalizeAmount(amount)
+	cacheKey := fmt.Sprintf(CacheWalletAddressWithAmountToTradeIdKey, token, normalizedAmount, chainType)
+	result, err := dao.CacheGet(ctx, cacheKey)
+	if errors.Is(err, dao.ErrCacheNotFound) {
 		return "", nil
 	}
 	if err != nil {
@@ -92,18 +106,20 @@ func GetTradeIdByWalletAddressAndAmount(token string, amount float64) (string, e
 	return result, nil
 }
 
-// LockTransaction 锁定交易
-func LockTransaction(token, tradeId string, amount float64, expirationTime time.Duration) error {
+// LockTransactionWithChainType 锁定交易（支持链类型）
+func LockTransactionWithChainType(token, tradeId string, amount float64, chainType string, expirationTime time.Duration) error {
 	ctx := context.Background()
-	cacheKey := fmt.Sprintf(CacheWalletAddressWithAmountToTradeIdKey, token, amount)
-	err := dao.Rdb.Set(ctx, cacheKey, tradeId, expirationTime).Err()
+	normalizedAmount := normalizeAmount(amount)
+	cacheKey := fmt.Sprintf(CacheWalletAddressWithAmountToTradeIdKey, token, normalizedAmount, chainType)
+	err := dao.CacheSet(ctx, cacheKey, tradeId, expirationTime)
 	return err
 }
 
-// UnLockTransaction 解锁交易
-func UnLockTransaction(token string, amount float64) error {
+// UnLockTransactionWithChainType 解锁交易（支持链类型）
+func UnLockTransactionWithChainType(token string, amount float64, chainType string) error {
 	ctx := context.Background()
-	cacheKey := fmt.Sprintf(CacheWalletAddressWithAmountToTradeIdKey, token, amount)
-	err := dao.Rdb.Del(ctx, cacheKey).Err()
+	normalizedAmount := normalizeAmount(amount)
+	cacheKey := fmt.Sprintf(CacheWalletAddressWithAmountToTradeIdKey, token, normalizedAmount, chainType)
+	err := dao.CacheDel(ctx, cacheKey)
 	return err
 }

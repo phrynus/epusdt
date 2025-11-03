@@ -9,6 +9,7 @@ type CreateTransactionRequest struct {
 	NotifyUrl   string  `json:"notify_url" validate:"required"`
 	Signature   string  `json:"signature"  validate:"required"`
 	RedirectUrl string  `json:"redirect_url"`
+	ChainType   string  `json:"chain_type"` // 链类型，TRC20、ERC20、BEP20、SOLANA，可选，默认TRC20
 }
 
 func (r CreateTransactionRequest) Translates() map[string]string {

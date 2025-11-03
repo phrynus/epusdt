@@ -81,6 +81,7 @@ POST /api/v1/order/create-transaction
   "amount": 100,
   "notify_url": "http://example.com/",
   "redirect_url": "http://example.com/",
+  "chain_type": "TRC20",
   "signature": "xsadaxsaxsa"
 }
 ```
@@ -90,10 +91,11 @@ POST /api/v1/order/create-transaction
 |名称|位置|类型|必选| 中文名       | 说明            |
 |---|---|---|---|-----------|---------------|
 |body|body|object| 否 ||           |
-|» order_id|body|string| 是 | 请求支付订单号   |           |
+|» order_id|body|string| 是 | 请求支付订单号   | 最大长度32位          |
 |» amount|body|number| 是 | 支付金额(CNY) | 小数点保留后2位，最少0.01 |
 |» notify_url|body|string| 是 | 异步回调地址    |           |
 |» redirect_url|body|string| 否 | 同步跳转地址    ||
+|» chain_type|body|string| 否 | 区块链类型    | TRC20、ERC20、BEP20、SOLANA，默认TRC20 |
 |» signature|body|string| 是 | 签名        | 接口统一加密方式              |
 
 > 返回示例
@@ -110,6 +112,7 @@ POST /api/v1/order/create-transaction
     "amount": 53,
     "actual_amount": 7.9104,
     "token": "TNEns8t9jbWENbStkQdVQtHMGpbsYsQjZK",
+    "chain_type": "TRC20",
     "expiration_time": 1648381192,
     "payment_url": "http://example.com/pay/checkout-counter/202203271648380592218340"
   },
@@ -136,10 +139,68 @@ POST /api/v1/order/create-transaction
 | »» amount          | float | 请求支付金额    | CNY,保留2位小数                    |
 | »» actual_amount   | float   | 实际需要支付的金额 | USDT,保留四位小数                   |
 | »» token           | string  | 钱包地址      |                               |
+| »» chain_type      | string  | 区块链类型     | TRC20、ERC20、BEP20、SOLANA        |
 | »» expiration_time | integer | 过期时间      | 时间戳秒                          |
 | »» payment_url     | string  | 收银台地址     |                               |
-| » request_id       | string  | true      |                               |
+| » request_id       | string  | 请求ID      |                               |
 
+
+# 收银台接口
+
+## GET 获取收银台页面
+
+GET /pay/checkout-counter/:trade_id
+
+### 请求参数
+
+|名称|位置|类型|必选| 中文名 | 说明 |
+|---|---|---|---|-----|-----|
+|trade_id|path|string| 是 | 交易号 | epusdt系统生成的交易号 |
+
+### 返回结果
+
+返回收银台HTML页面，包含支付信息和二维码
+
+# 支付状态检测接口
+
+## GET 检测支付状态
+
+GET /pay/check-status/:trade_id
+
+### 请求参数
+
+|名称|位置|类型|必选| 中文名 | 说明 |
+|---|---|---|---|-----|-----|
+|trade_id|path|string| 是 | 交易号 | epusdt系统生成的交易号 |
+
+> 返回示例
+
+> 成功
+
+```json
+{
+  "status_code": 200,
+  "message": "success",
+  "data": {
+    "trade_id": "202203271648380592218340",
+    "status": 1
+  },
+  "request_id": "b1344d70-ff19-4543-b601-37abfb3b3686"
+}
+```
+
+### 返回数据结构
+
+状态码 **200**
+
+| 名称 | 类型 | 解释 | 说明 |
+|-----|------|------|------|
+| » status_code | integer | 请求状态 | 请参考下方[status_code返回状态码及含义](#status_code返回状态码及含义) |
+| » message | string | 消息 ||
+| » data | object | 返回数据 ||
+| »» trade_id | string | 交易号 ||
+| »» status | integer | 订单状态 | 1：等待支付，2：支付成功，3：已过期 |
+| » request_id | string | 请求ID ||
 
 # 异步回调
 
@@ -158,6 +219,7 @@ POST 【异步回调地址】
   "amount": 100,
   "actual_amount": 15.625,
   "token": "TNEns8t9jbWENbStkQdVQtHMGpbsYsQjZK",
+  "chain_type": "TRC20",
   "block_transaction_id": "123333333321232132131",
   "signature": "xsadaxsaxsa",
   "status": 2
@@ -174,6 +236,7 @@ POST 【异步回调地址】
 |» amount|body| float  | 是 | 支付金额(CNY)           | 小数点保留后2位 |
 |» actual_amount|body| float  | 是 | 实际需要支付的usdt金额(USDT) | 小数点保留后4位 |
 |» token|body| string | 是 | 钱包地址                | |
+|» chain_type|body| string | 是 | 区块链类型               | TRC20、ERC20、BEP20、SOLANA |
 |» block_transaction_id|body| string | 是 | 区块交易号               |  |
 |» signature|body| string | 是 | 签名                  |                 |
 |» status|body| int    | 是 | 订单状态                | 1：等待支付，2：支付成功，3：已过期        | 
@@ -184,6 +247,7 @@ POST 【异步回调地址】
 |-----|-----|
 |400|系统错误|
 |401|签名认证错误|
+|10001|钱包地址已存在，请勿重复添加|
 |10002|支付交易已存在，请勿重复创建|
 |10003|无可用钱包地址，无法发起支付|
 |10004|支付金额有误, 无法满足最小支付单位|
@@ -191,4 +255,4 @@ POST 【异步回调地址】
 |10006|汇率计算错误|
 |10007|订单区块已处理|
 |10008|订单不存在|
-|10009|无法解析参数|
+|10009|无法解析请求参数|

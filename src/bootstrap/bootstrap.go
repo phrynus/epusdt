@@ -8,18 +8,23 @@ import (
 	"github.com/assimon/luuu/task"
 	"github.com/assimon/luuu/telegram"
 	"github.com/assimon/luuu/util/log"
+
+	// 初始化区块链服务
+	_ "github.com/assimon/luuu/blockchain/bep20"
+	_ "github.com/assimon/luuu/blockchain/erc20"
+	_ "github.com/assimon/luuu/blockchain/polygon"
+	_ "github.com/assimon/luuu/blockchain/solana"
+	_ "github.com/assimon/luuu/blockchain/trc20"
 )
 
-//Start 服务启动
+// Start 服务启动
 func Start() {
 	// 配置加载
 	config.Init()
 	// 日志加载
 	log.Init()
-	// Mysql启动
+	// MySQL启动
 	dao.MysqlInit()
-	// redis启动
-	dao.RedisInit()
 	// 队列启动
 	mq.Start()
 	// telegram机器人启动

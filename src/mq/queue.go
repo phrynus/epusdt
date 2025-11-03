@@ -1,51 +1,34 @@
 package mq
 
 import (
-	"fmt"
+	"context"
+
+	"github.com/assimon/luuu/model/dao"
 	"github.com/assimon/luuu/mq/handle"
 	"github.com/assimon/luuu/util/log"
-	"github.com/hibiken/asynq"
-	"github.com/spf13/viper"
 )
 
-var MClient *asynq.Client
+var queueCtx context.Context
+var queueCancel context.CancelFunc
 
 func Start() {
-	redis := asynq.RedisClientOpt{
-		Addr: fmt.Sprintf(
-			"%s:%s",
-			viper.GetString("redis_host"),
-			viper.GetString("redis_port")),
-		DB:       viper.GetInt("redis_db"),
-		Password: viper.GetString("redis_passwd"),
-	}
-	initClient(redis)
-	go initListen(redis)
+	// 注册任务处理器
+	dao.RegisterTaskHandler(handle.QueueOrderExpiration, handle.OrderExpirationHandle)
+	dao.RegisterTaskHandler(handle.QueueOrderExpirationCallback, handle.OrderExpirationCallbackHandle)
+	dao.RegisterTaskHandler(handle.QueueOrderCallback, handle.OrderCallbackHandle)
+
+	// 启动队列处理器
+	queueCtx, queueCancel = context.WithCancel(context.Background())
+	go dao.ProcessQueue(queueCtx, "critical")
+	go dao.ProcessQueue(queueCtx, "default")
+	go dao.ProcessQueue(queueCtx, "low")
+
+	log.Sugar.Info("[队列] 队列处理器已启动")
 }
 
-func initClient(redis asynq.RedisClientOpt) {
-	MClient = asynq.NewClient(redis)
-}
-
-func initListen(redis asynq.RedisClientOpt) {
-	srv := asynq.NewServer(
-		redis,
-		asynq.Config{
-			// Specify how many concurrent workers to use
-			Concurrency: viper.GetInt("queue_concurrency"),
-			// Optionally specify multiple queues with different priority.
-			Queues: map[string]int{
-				"critical": viper.GetInt("queue_level_critical"),
-				"default":  viper.GetInt("queue_level_default"),
-				"low":      viper.GetInt("queue_level_low"),
-			},
-			Logger: log.Sugar,
-		},
-	)
-	mux := asynq.NewServeMux()
-	mux.HandleFunc(handle.QueueOrderExpiration, handle.OrderExpirationHandle)
-	mux.HandleFunc(handle.QueueOrderCallback, handle.OrderCallbackHandle)
-	if err := srv.Run(mux); err != nil {
-		log.Sugar.Fatalf("[queue] could not run server: %v", err)
+func Stop() {
+	if queueCancel != nil {
+		queueCancel()
+		log.Sugar.Info("[队列] 队列处理器已停止")
 	}
 }

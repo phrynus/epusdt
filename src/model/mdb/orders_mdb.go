@@ -15,6 +15,7 @@ type Orders struct {
 	Amount             float64 `gorm:"column:amount" json:"amount"`                             //  订单金额，保留4位小数
 	ActualAmount       float64 `gorm:"column:actual_amount" json:"actual_amount"`               //  订单实际需要支付的金额，保留4位小数
 	Token              string  `gorm:"column:token" json:"token"`                               //  所属钱包地址
+	ChainType          string  `gorm:"column:chain_type" json:"chain_type"`                     //  链类型: TRC20, ERC20, BEP20, SOLANA
 	Status             int     `gorm:"column:status" json:"status"`                             //  1：等待支付，2：支付成功，3：已过期
 	NotifyUrl          string  `gorm:"column:notify_url" json:"notify_url"`                     //  异步回调地址
 	RedirectUrl        string  `gorm:"column:redirect_url" json:"redirect_url"`                 //  同步回调地址

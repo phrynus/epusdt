@@ -2,22 +2,29 @@ package config
 
 import (
 	"fmt"
-	"github.com/spf13/viper"
-	"net/url"
 	"os"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 var (
-	AppDebug    bool
-	MysqlDns    string
-	RuntimePath string
-	LogSavePath string
-	StaticPath  string
-	TgBotToken  string
-	TgProxy     string
-	TgManage    int64
-	UsdtRate    float64
+	AppDebug          bool
+	MysqlHost         string
+	MysqlPort         string
+	MysqlUser         string
+	MysqlPassword     string
+	MysqlDatabase     string
+	RuntimePath       string
+	LogSavePath       string
+	StaticPath        string
+	TgBotToken        string
+	TgProxy           string
+	TgManage          int64
+	UsdtRate          float64
+	EtherscanApiKey   string
+	BscScanApiKey     string // 已弃用，请使用 EtherscanApiKey，Etherscan API V2 支持多链
+	SolanaRpcEndpoint string
 )
 
 func Init() {
@@ -41,17 +48,31 @@ func Init() {
 		"%s%s",
 		RuntimePath,
 		viper.GetString("log_save_path"))
-	MysqlDns = fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		url.QueryEscape(viper.GetString("mysql_user")),
-		url.QueryEscape(viper.GetString("mysql_passwd")),
-		fmt.Sprintf(
-			"%s:%s",
-			viper.GetString("mysql_host"),
-			viper.GetString("mysql_port")),
-		viper.GetString("mysql_database"))
+	// MySQL 数据库配置
+	MysqlHost = viper.GetString("mysql_host")
+	if MysqlHost == "" {
+		MysqlHost = "127.0.0.1"
+	}
+	MysqlPort = viper.GetString("mysql_port")
+	if MysqlPort == "" {
+		MysqlPort = "3306"
+	}
+	MysqlUser = viper.GetString("mysql_user")
+	if MysqlUser == "" {
+		MysqlUser = "root"
+	}
+	MysqlPassword = viper.GetString("mysql_password")
+	MysqlDatabase = viper.GetString("mysql_database")
+	if MysqlDatabase == "" {
+		MysqlDatabase = "epusdt"
+	}
 	TgBotToken = viper.GetString("tg_bot_token")
 	TgProxy = viper.GetString("tg_proxy")
 	TgManage = viper.GetInt64("tg_manage")
+	EtherscanApiKey = viper.GetString("etherscan_api_key")
+	BscScanApiKey = viper.GetString("bscscan_api_key")
+	SolanaRpcEndpoint = viper.GetString("solana_rpc_endpoint")
+	fmt.Println(SolanaRpcEndpoint)
 }
 
 func GetAppVersion() string {
@@ -96,4 +117,24 @@ func GetOrderExpirationTime() int {
 func GetOrderExpirationTimeDuration() time.Duration {
 	timer := GetOrderExpirationTime()
 	return time.Minute * time.Duration(timer)
+}
+
+func GetEtherscanApiKey() string {
+	return EtherscanApiKey
+}
+
+func GetBscScanApiKey() string {
+	// 优先返回 BscScanApiKey（向后兼容），如果未配置则返回 EtherscanApiKey
+	// 因为 Etherscan API V2 支持多链，一个密钥可用于 BSC 和 Ethereum
+	if BscScanApiKey != "" {
+		return BscScanApiKey
+	}
+	return EtherscanApiKey
+}
+
+func GetSolanaRpcEndpoint() string {
+	if SolanaRpcEndpoint == "" {
+		return "https://api.mainnet-beta.solana.com" // 默认 Solana 主网
+	}
+	return SolanaRpcEndpoint
 }

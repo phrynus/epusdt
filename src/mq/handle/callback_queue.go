@@ -3,6 +3,7 @@ package handle
 import (
 	"context"
 	"errors"
+
 	"github.com/assimon/luuu/config"
 	"github.com/assimon/luuu/model/data"
 	"github.com/assimon/luuu/model/mdb"
@@ -11,22 +12,13 @@ import (
 	"github.com/assimon/luuu/util/json"
 	"github.com/assimon/luuu/util/log"
 	"github.com/assimon/luuu/util/sign"
-	"github.com/hibiken/asynq"
 )
 
 const QueueOrderCallback = "order:callback"
 
-func NewOrderCallbackQueue(order *mdb.Orders) (*asynq.Task, error) {
-	payload, err := json.Cjson.Marshal(order)
-	if err != nil {
-		return nil, err
-	}
-	return asynq.NewTask(QueueOrderCallback, payload), nil
-}
-
-func OrderCallbackHandle(ctx context.Context, t *asynq.Task) error {
+func OrderCallbackHandle(ctx context.Context, payload []byte) error {
 	var order mdb.Orders
-	err := json.Cjson.Unmarshal(t.Payload(), &order)
+	err := json.Cjson.Unmarshal(payload, &order)
 	if err != nil {
 		return err
 	}
@@ -45,6 +37,7 @@ func OrderCallbackHandle(ctx context.Context, t *asynq.Task) error {
 		Amount:             order.Amount,
 		ActualAmount:       order.ActualAmount,
 		Token:              order.Token,
+		ChainType:          order.ChainType,
 		BlockTransactionId: order.BlockTransactionId,
 		Status:             mdb.StatusPaySuccess,
 	}
@@ -58,9 +51,9 @@ func OrderCallbackHandle(ctx context.Context, t *asynq.Task) error {
 		return err
 	}
 	body := string(resp.Body())
-	if body != "ok" {
+	if body != "ok" && body != "success" {
 		order.CallBackConfirm = mdb.CallBackConfirmNo
-		return errors.New("not ok")
+		return errors.New("回调响应不正确")
 	}
 	order.CallBackConfirm = mdb.CallBackConfirmOk
 	return nil
