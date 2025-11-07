@@ -21,6 +21,7 @@ const (
 	EtherscanApiV2Uri        = "https://api.etherscan.io/v2/api"
 	EthereumChainID          = "1"                                          // Ethereum Mainnet
 	USDTContractAddressERC20 = "0xdac17f958d2ee523a2206206994597c13d831ec7" // USDT on Ethereum
+	USDCContractAddressERC20 = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" // USDC on Ethereum
 )
 
 type ERC20Service struct {
@@ -86,6 +87,26 @@ func (s *ERC20Service) ValidateAddress(address string) bool {
 }
 
 func (s *ERC20Service) GetTransactions(address string, startTime int64, endTime int64) ([]blockchain.Transaction, error) {
+	// 同时查询 USDT 和 USDC 交易
+	usdtTxs, err := s.getTransactionsByContract(address, startTime, endTime, USDTContractAddressERC20)
+	if err != nil {
+		// USDT 查询失败，记录错误但继续查询 USDC
+		usdtTxs = []blockchain.Transaction{}
+	}
+
+	usdcTxs, err := s.getTransactionsByContract(address, startTime, endTime, USDCContractAddressERC20)
+	if err != nil {
+		// USDC 查询失败，记录错误但继续
+		usdcTxs = []blockchain.Transaction{}
+	}
+
+	// 合并交易列表
+	allTxs := append(usdtTxs, usdcTxs...)
+	return allTxs, nil
+}
+
+// getTransactionsByContract 查询指定合约地址的交易
+func (s *ERC20Service) getTransactionsByContract(address string, startTime int64, endTime int64, contractAddress string) ([]blockchain.Transaction, error) {
 	apiKey := config.GetEtherscanApiKey()
 	if apiKey == "" {
 		return nil, fmt.Errorf("未配置 Etherscan API 密钥")
@@ -106,7 +127,7 @@ func (s *ERC20Service) GetTransactions(address string, startTime int64, endTime 
 		"chainid":         EthereumChainID,
 		"module":          "account",
 		"action":          "tokentx",
-		"contractaddress": USDTContractAddressERC20,
+		"contractaddress": contractAddress,
 		"address":         address,
 		"page":            "1",
 		"offset":          "100",
@@ -160,7 +181,7 @@ func (s *ERC20Service) GetTransactions(address string, startTime int64, endTime 
 			continue
 		}
 
-		// 转换金额，ERC20 USDT是6位小数
+		// 转换金额，ERC20 USDT/USDC通常是6位小数
 		decimalQuant, err := decimal.NewFromString(transfer.Value)
 		if err != nil {
 			continue
@@ -191,7 +212,7 @@ func (s *ERC20Service) GetTransactions(address string, startTime int64, endTime 
 			BlockTimestamp:  timestampMs,
 			Confirmations:   confirmations,
 			Status:          "SUCCESS",
-			ContractAddress: USDTContractAddressERC20,
+			ContractAddress: contractAddress, // 使用实际的合约地址
 		}
 		transactions = append(transactions, tx)
 	}

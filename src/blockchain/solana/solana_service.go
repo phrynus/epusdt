@@ -16,6 +16,8 @@ import (
 const (
 	// USDT on Solana (SPL Token)
 	USDTMintAddressSolana = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+	// USDC on Solana (SPL Token)
+	USDCMintAddressSolana = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 )
 
 type SolanaService struct {
@@ -48,6 +50,26 @@ func (s *SolanaService) ValidateAddress(address string) bool {
 }
 
 func (s *SolanaService) GetTransactions(address string, startTime int64, endTime int64) ([]blockchain.Transaction, error) {
+	// 同时查询 USDT 和 USDC 交易
+	usdtTxs, err := s.getTransactionsByMint(address, startTime, endTime, USDTMintAddressSolana)
+	if err != nil {
+		// USDT 查询失败，记录错误但继续查询 USDC
+		usdtTxs = []blockchain.Transaction{}
+	}
+
+	usdcTxs, err := s.getTransactionsByMint(address, startTime, endTime, USDCMintAddressSolana)
+	if err != nil {
+		// USDC 查询失败，记录错误但继续
+		usdcTxs = []blockchain.Transaction{}
+	}
+
+	// 合并交易列表
+	allTxs := append(usdtTxs, usdcTxs...)
+	return allTxs, nil
+}
+
+// getTransactionsByMint 查询指定 mint 地址的交易
+func (s *SolanaService) getTransactionsByMint(address string, startTime int64, endTime int64, mintAddress string) ([]blockchain.Transaction, error) {
 	ctx := context.Background()
 
 	// 解析地址
@@ -56,18 +78,17 @@ func (s *SolanaService) GetTransactions(address string, startTime int64, endTime
 		return nil, fmt.Errorf("无效的 Solana 地址: %w", err)
 	}
 
-	usdtMint := solana.MustPublicKeyFromBase58("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB")
+	mint := solana.MustPublicKeyFromBase58(mintAddress)
 
 	// 获取 ATA 地址
 	ata, _, err := solana.FindAssociatedTokenAddress(
 		pubKey,
-		usdtMint,
+		mint,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("获取关联Token地址失败: %w", err)
 	}
-	// log.Sugar.Debugf("[%s] 查找订单: 地址=%s, 金额=%.4f", chainType, address, tx.Amount)
-	log.Sugar.Debugf("[SOLANA] %s 的关联Token地址: %s", address, ata)
+	log.Sugar.Debugf("[SOLANA] %s 的关联Token地址: %s (Mint: %s)", address, ata, mintAddress)
 
 	// 获取签名列表，最近的交易
 	sigs, err := s.rpcClient.GetSignaturesForAddress(ctx, ata)
@@ -108,7 +129,7 @@ func (s *SolanaService) GetTransactions(address string, startTime int64, endTime
 		}
 
 		// 简化的Token转账检测
-		transaction := s.parseTokenTransfer(tx, pubKey, sig.Signature.String(), blockTimeMs)
+		transaction := s.parseTokenTransfer(tx, pubKey, sig.Signature.String(), blockTimeMs, mintAddress)
 		if transaction != nil {
 			transactions = append(transactions, *transaction)
 		}
@@ -118,7 +139,7 @@ func (s *SolanaService) GetTransactions(address string, startTime int64, endTime
 }
 
 // parseTokenTransfer 解析SPL Token转账，简化版本
-func (s *SolanaService) parseTokenTransfer(tx *rpc.GetTransactionResult, targetAddr solana.PublicKey, txHash string, blockTime int64) *blockchain.Transaction {
+func (s *SolanaService) parseTokenTransfer(tx *rpc.GetTransactionResult, targetAddr solana.PublicKey, txHash string, blockTime int64, mintAddress string) *blockchain.Transaction {
 	if tx.Meta == nil {
 		return nil
 	}
@@ -128,10 +149,10 @@ func (s *SolanaService) parseTokenTransfer(tx *rpc.GetTransactionResult, targetA
 		return nil
 	}
 
-	// 查找USDT相关的余额变化
+	// 查找指定mint地址的余额变化
 	for _, postBalance := range tx.Meta.PostTokenBalances {
-		// 检查是否是USDT Mint地址
-		if postBalance.Mint.String() != USDTMintAddressSolana {
+		// 检查是否是指定的 Mint 地址
+		if postBalance.Mint.String() != mintAddress {
 			continue
 		}
 
@@ -139,7 +160,7 @@ func (s *SolanaService) parseTokenTransfer(tx *rpc.GetTransactionResult, targetA
 		var preAmount float64 = 0
 		for _, preBalance := range tx.Meta.PreTokenBalances {
 			if preBalance.AccountIndex == postBalance.AccountIndex &&
-				preBalance.Mint.String() == USDTMintAddressSolana {
+				preBalance.Mint.String() == mintAddress {
 				if preBalance.UiTokenAmount.UiAmount != nil {
 					preAmount = *preBalance.UiTokenAmount.UiAmount
 				}
@@ -164,7 +185,7 @@ func (s *SolanaService) parseTokenTransfer(tx *rpc.GetTransactionResult, targetA
 				BlockTimestamp:  blockTime,
 				Confirmations:   1, // Solana确认很快
 				Status:          "SUCCESS",
-				ContractAddress: USDTMintAddressSolana,
+				ContractAddress: mintAddress, // 使用实际的 mint 地址
 			}
 		}
 	}

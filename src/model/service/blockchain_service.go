@@ -34,6 +34,39 @@ func GetBlockchainExplorerURL(chainType string, txHash string) string {
 	}
 }
 
+// GetTokenSymbol 根据合约地址获取代币符号
+func GetTokenSymbol(contractAddress string, chainType string) string {
+	// USDT合约地址
+	usdtContracts := map[string]string{
+		"0xdac17f958d2ee523a2206206994597c13d831ec7":   "USDT", // ERC20
+		"TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t":           "USDT", // TRC20
+		"0x55d398326f99059fF775485246999027B3197955":   "USDT", // BEP20
+		"0xc2132D05D31c914a87C6611C10748AEb04B58e8F":   "USDT", // Polygon
+		"Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": "USDT", // Solana
+	}
+
+	// USDC合约地址（TRC20除外）
+	usdcContracts := map[string]string{
+		"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48":   "USDC", // ERC20
+		"0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d":   "USDC", // BEP20
+		"0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174":   "USDC", // Polygon
+		"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "USDC", // Solana
+	}
+
+	// 检查是否是USDT
+	if symbol, ok := usdtContracts[contractAddress]; ok {
+		return symbol
+	}
+
+	// 检查是否是USDC
+	if symbol, ok := usdcContracts[contractAddress]; ok {
+		return symbol
+	}
+
+	// 默认返回USDT（向后兼容）
+	return "USDT"
+}
+
 // ChainCallBack 通用区块链回调处理
 func ChainCallBack(address string, chainType string, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -151,13 +184,15 @@ func ChainCallBack(address string, chainType string, wg *sync.WaitGroup) {
 
 		// 发送机器人消息
 		explorerURL := GetBlockchainExplorerURL(chainType, tx.Hash)
+		tokenSymbol := GetTokenSymbol(tx.ContractAddress, chainType)
 		msgTpl := `【支付成功通知】
 
 区块链：%s
 交易号：%s
 订单号：%s
 请求金额：%.2f 元
-支付金额：%.4f USDT
+支付币种：%s
+支付金额：%.4f
 收款地址：%s
 
 交易哈希：
@@ -173,6 +208,7 @@ func ChainCallBack(address string, chainType string, wg *sync.WaitGroup) {
 			order.TradeId,
 			order.OrderId,
 			order.Amount,
+			tokenSymbol,
 			order.ActualAmount,
 			order.Token,
 			tx.Hash,

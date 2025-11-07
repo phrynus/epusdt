@@ -21,6 +21,7 @@ const (
 	EtherscanApiV2Uri          = "https://api.etherscan.io/v2/api"
 	PolygonChainID             = "137"                                        // Polygon Mainnet
 	USDTContractAddressPolygon = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F" // USDT on Polygon
+	USDCContractAddressPolygon = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" // USDC on Polygon
 )
 
 type PolygonService struct {
@@ -86,6 +87,26 @@ func (s *PolygonService) ValidateAddress(address string) bool {
 }
 
 func (s *PolygonService) GetTransactions(address string, startTime int64, endTime int64) ([]blockchain.Transaction, error) {
+	// 同时查询 USDT 和 USDC 交易
+	usdtTxs, err := s.getTransactionsByContract(address, startTime, endTime, USDTContractAddressPolygon)
+	if err != nil {
+		// USDT 查询失败，记录错误但继续查询 USDC
+		usdtTxs = []blockchain.Transaction{}
+	}
+
+	usdcTxs, err := s.getTransactionsByContract(address, startTime, endTime, USDCContractAddressPolygon)
+	if err != nil {
+		// USDC 查询失败，记录错误但继续
+		usdcTxs = []blockchain.Transaction{}
+	}
+
+	// 合并交易列表
+	allTxs := append(usdtTxs, usdcTxs...)
+	return allTxs, nil
+}
+
+// getTransactionsByContract 查询指定合约地址的交易
+func (s *PolygonService) getTransactionsByContract(address string, startTime int64, endTime int64, contractAddress string) ([]blockchain.Transaction, error) {
 	apiKey := config.GetEtherscanApiKey()
 	if apiKey == "" {
 		return nil, fmt.Errorf("未配置 Etherscan API 密钥")
@@ -106,7 +127,7 @@ func (s *PolygonService) GetTransactions(address string, startTime int64, endTim
 		"chainid":         PolygonChainID,
 		"module":          "account",
 		"action":          "tokentx",
-		"contractaddress": USDTContractAddressPolygon,
+		"contractaddress": contractAddress,
 		"address":         address,
 		"page":            "1",
 		"offset":          "100",
@@ -159,7 +180,7 @@ func (s *PolygonService) GetTransactions(address string, startTime int64, endTim
 			continue
 		}
 
-		// 转换金额，Polygon USDT是6位小数
+		// 转换金额，Polygon USDT/USDC是6位小数
 		decimalQuant, err := decimal.NewFromString(transfer.Value)
 		if err != nil {
 			continue
@@ -190,7 +211,7 @@ func (s *PolygonService) GetTransactions(address string, startTime int64, endTim
 			BlockTimestamp:  timestampMs,
 			Confirmations:   confirmations,
 			Status:          "SUCCESS",
-			ContractAddress: USDTContractAddressPolygon,
+			ContractAddress: contractAddress, // 使用实际的合约地址
 		}
 		transactions = append(transactions, tx)
 	}

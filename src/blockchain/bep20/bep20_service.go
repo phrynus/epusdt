@@ -21,6 +21,7 @@ const (
 	EtherscanApiV2Uri        = "https://api.etherscan.io/v2/api"
 	BSCChainID               = "56"                                         // BNB Smart Chain
 	USDTContractAddressBEP20 = "0x55d398326f99059fF775485246999027B3197955" // USDT on BSC
+	USDCContractAddressBEP20 = "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d" // USDC on BSC
 )
 
 type BEP20Service struct {
@@ -86,6 +87,26 @@ func (s *BEP20Service) ValidateAddress(address string) bool {
 }
 
 func (s *BEP20Service) GetTransactions(address string, startTime int64, endTime int64) ([]blockchain.Transaction, error) {
+	// 同时查询 USDT 和 USDC 交易
+	usdtTxs, err := s.getTransactionsByContract(address, startTime, endTime, USDTContractAddressBEP20)
+	if err != nil {
+		// USDT 查询失败，记录错误但继续查询 USDC
+		usdtTxs = []blockchain.Transaction{}
+	}
+
+	usdcTxs, err := s.getTransactionsByContract(address, startTime, endTime, USDCContractAddressBEP20)
+	if err != nil {
+		// USDC 查询失败，记录错误但继续
+		usdcTxs = []blockchain.Transaction{}
+	}
+
+	// 合并交易列表
+	allTxs := append(usdtTxs, usdcTxs...)
+	return allTxs, nil
+}
+
+// getTransactionsByContract 查询指定合约地址的交易
+func (s *BEP20Service) getTransactionsByContract(address string, startTime int64, endTime int64, contractAddress string) ([]blockchain.Transaction, error) {
 	apiKey := config.GetEtherscanApiKey()
 	if apiKey == "" {
 		return nil, fmt.Errorf("未配置 Etherscan API 密钥")
@@ -106,7 +127,7 @@ func (s *BEP20Service) GetTransactions(address string, startTime int64, endTime 
 		"chainid":         BSCChainID,
 		"module":          "account",
 		"action":          "tokentx",
-		"contractaddress": USDTContractAddressBEP20,
+		"contractaddress": contractAddress,
 		"address":         address,
 		"page":            "1",
 		"offset":          "100",
@@ -156,11 +177,10 @@ func (s *BEP20Service) GetTransactions(address string, startTime int64, endTime 
 		timestampMs := timestamp * 1000
 		// 检查时间范围
 		if timestampMs < startTime || timestampMs > endTime {
-
 			continue
 		}
 
-		// 转换金额，BEP20 USDT通常是18位小数
+		// 转换金额，BEP20 USDT/USDC通常是18位小数
 		decimalQuant, err := decimal.NewFromString(transfer.Value)
 		if err != nil {
 			continue
@@ -191,7 +211,7 @@ func (s *BEP20Service) GetTransactions(address string, startTime int64, endTime 
 			BlockTimestamp:  timestampMs,
 			Confirmations:   confirmations,
 			Status:          "SUCCESS",
-			ContractAddress: USDTContractAddressBEP20,
+			ContractAddress: contractAddress, // 使用实际的合约地址
 		}
 		transactions = append(transactions, tx)
 	}
