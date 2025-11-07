@@ -14,6 +14,12 @@ type Transaction struct {
 	ContractAddress string  // 合约地址，代币
 }
 
+// TokenBalance 代币余额
+type TokenBalance struct {
+	USDT float64 // USDT余额
+	USDC float64 // USDC余额
+}
+
 // ChainService 区块链服务接口
 type ChainService interface {
 	// GetChainType 获取链类型
@@ -27,6 +33,9 @@ type ChainService interface {
 
 	// ValidateAddress 验证地址格式
 	ValidateAddress(address string) bool
+
+	// GetTokenBalance 获取地址的代币余额（USDT + USDC）
+	GetTokenBalance(address string) (*TokenBalance, error)
 }
 
 // Factory 链服务工厂

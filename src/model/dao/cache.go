@@ -38,21 +38,33 @@ func CacheGet(ctx context.Context, key string) (string, error) {
 
 // CacheSet 设置缓存
 func CacheSet(ctx context.Context, key, value string, expiration time.Duration) error {
-	var expiresAt *time.Time
+	// 先尝试更新，如果不存在则插入 (MySQL 语法)
+	// 使用 MySQL 服务器端计算过期时间，避免时区问题
+	var query string
+	var args []interface{}
+
 	if expiration > 0 {
-		t := time.Now().Add(expiration)
-		expiresAt = &t
+		// 将 expiration 转换为秒数，让 MySQL 服务器端计算过期时间
+		seconds := int(expiration.Seconds())
+		query = `INSERT INTO cache (cache_key, cache_value, expires_at, updated_at) 
+				 VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), CURRENT_TIMESTAMP)
+				 ON DUPLICATE KEY UPDATE 
+				 cache_value = VALUES(cache_value),
+				 expires_at = VALUES(expires_at),
+				 updated_at = CURRENT_TIMESTAMP`
+		args = []interface{}{key, value, seconds}
+	} else {
+		// 永不过期
+		query = `INSERT INTO cache (cache_key, cache_value, expires_at, updated_at) 
+				 VALUES (?, ?, NULL, CURRENT_TIMESTAMP)
+				 ON DUPLICATE KEY UPDATE 
+				 cache_value = VALUES(cache_value),
+				 expires_at = VALUES(expires_at),
+				 updated_at = CURRENT_TIMESTAMP`
+		args = []interface{}{key, value}
 	}
 
-	// 先尝试更新，如果不存在则插入 (MySQL 语法)
-	query := `INSERT INTO cache (cache_key, cache_value, expires_at, updated_at) 
-			  VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-			  ON DUPLICATE KEY UPDATE 
-			  cache_value = VALUES(cache_value),
-			  expires_at = VALUES(expires_at),
-			  updated_at = CURRENT_TIMESTAMP`
-
-	return Mdb.WithContext(ctx).Exec(query, key, value, expiresAt).Error
+	return Mdb.WithContext(ctx).Exec(query, args...).Error
 }
 
 // CacheDel 删除缓存

@@ -9,22 +9,24 @@ import (
 )
 
 var (
-	AppDebug          bool
-	MysqlHost         string
-	MysqlPort         string
-	MysqlUser         string
-	MysqlPassword     string
-	MysqlDatabase     string
-	RuntimePath       string
-	LogSavePath       string
-	StaticPath        string
-	TgBotToken        string
-	TgProxy           string
-	TgManage          int64
-	UsdtRate          float64
-	EtherscanApiKey   string
-	BscScanApiKey     string // 已弃用，请使用 EtherscanApiKey，Etherscan API V2 支持多链
-	SolanaRpcEndpoint string
+	AppDebug                 bool
+	LogDebug                 bool // 日志是否输出到控制台
+	BlockchainListenInterval int  // 区块链监听间隔（秒）
+	MysqlHost                string
+	MysqlPort                string
+	MysqlUser                string
+	MysqlPassword            string
+	MysqlDatabase            string
+	RuntimePath              string
+	LogSavePath              string
+	StaticPath               string
+	TgBotToken               string
+	TgProxy                  string
+	TgManage                 int64
+	UsdtRate                 float64
+	EtherscanApiKey          string
+	BscScanApiKey            string // 已弃用，请使用 EtherscanApiKey，Etherscan API V2 支持多链
+	SolanaRpcEndpoint        string
 )
 
 func Init() {
@@ -39,6 +41,11 @@ func Init() {
 		panic(err)
 	}
 	AppDebug = viper.GetBool("app_debug")
+	LogDebug = viper.GetBool("log_debug")
+	BlockchainListenInterval = viper.GetInt("blockchain_listen_interval")
+	if BlockchainListenInterval <= 0 {
+		BlockchainListenInterval = 10 // 默认10秒
+	}
 	StaticPath = viper.GetString("static_path")
 	RuntimePath = fmt.Sprintf(
 		"%s%s",
@@ -137,4 +144,12 @@ func GetSolanaRpcEndpoint() string {
 		return "https://api.mainnet-beta.solana.com" // 默认 Solana 主网
 	}
 	return SolanaRpcEndpoint
+}
+
+// GetBlockchainListenInterval 获取区块链监听间隔
+func GetBlockchainListenInterval() int {
+	if BlockchainListenInterval <= 0 {
+		return 10 // 默认10秒
+	}
+	return BlockchainListenInterval
 }

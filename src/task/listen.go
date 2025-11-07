@@ -1,8 +1,10 @@
 package task
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/assimon/luuu/config"
 	"github.com/assimon/luuu/model/mdb"
 	"github.com/assimon/luuu/util/log"
 	"github.com/robfig/cron/v3"
@@ -13,33 +15,37 @@ func Start() {
 
 	log.Sugar.Info("启动区块链监控任务...")
 
+	// 获取配置的监听间隔
+	listenInterval := config.GetBlockchainListenInterval()
+	cronExpr := fmt.Sprintf("@every %ds", listenInterval)
+
 	// 汇率监听
 	c.AddJob("@every 60s", UsdtRateJob{})
 	log.Sugar.Info("USDT汇率监控已启动，每60秒执行")
 
 	// TRC20，波场钱包监听
-	c.AddJob("@every 15s", NewListenBlockchainJob(mdb.ChainTypeTRC20))
-	log.Sugar.Info("TRC20监控已启动")
+	c.AddJob(cronExpr, NewListenBlockchainJob(mdb.ChainTypeTRC20))
+	log.Sugar.Infof("TRC20监控已启动，每%d秒执行", listenInterval)
 	time.Sleep(1 * time.Second)
 
 	// ERC20，以太坊钱包监听
-	c.AddJob("@every 15s", NewListenBlockchainJob(mdb.ChainTypeERC20))
-	log.Sugar.Info("ERC20监控已启动")
+	c.AddJob(cronExpr, NewListenBlockchainJob(mdb.ChainTypeERC20))
+	log.Sugar.Infof("ERC20监控已启动，每%d秒执行", listenInterval)
 	time.Sleep(1 * time.Second)
 
-	// BEP20，币安智能链钱包监听，降低频率避免API速率限制
-	c.AddJob("@every 15s", NewListenBlockchainJob(mdb.ChainTypeBEP20))
-	log.Sugar.Info("BEP20监控已启动")
+	// BEP20，币安智能链钱包监听
+	c.AddJob(cronExpr, NewListenBlockchainJob(mdb.ChainTypeBEP20))
+	log.Sugar.Infof("BEP20监控已启动，每%d秒执行", listenInterval)
 	time.Sleep(1 * time.Second)
 
 	// Polygon钱包监听
-	c.AddJob("@every 15s", NewListenBlockchainJob(mdb.ChainTypePOLYGON))
-	log.Sugar.Info("Polygon监控已启动")
+	c.AddJob(cronExpr, NewListenBlockchainJob(mdb.ChainTypePOLYGON))
+	log.Sugar.Infof("Polygon监控已启动，每%d秒执行", listenInterval)
 	time.Sleep(1 * time.Second)
 
 	// Solana钱包监听
-	c.AddJob("@every 30s", NewListenBlockchainJob(mdb.ChainTypeSOLANA))
-	log.Sugar.Info("Solana监控已启动")
+	c.AddJob(cronExpr, NewListenBlockchainJob(mdb.ChainTypeSOLANA))
+	log.Sugar.Infof("Solana监控已启动，每%d秒执行", listenInterval)
 
 	// 定时清理过期缓存（每5分钟执行一次）
 	c.AddJob("@every 5m", CleanCacheJob{})

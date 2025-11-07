@@ -377,7 +377,12 @@ func ShowWalletDetail(c tb.Context, id uint64) error {
 
 	// 显示余额（如果有更新过）
 	if tokenInfo.Balance > 0 || tokenInfo.BalanceUpdatedAt != nil {
-		message += fmt.Sprintf("余额：%.4f USDT\n", tokenInfo.Balance)
+		// TRC20 只显示 USDT，其他链显示 USDT/USDC
+		balanceLabel := "USDT/USDC"
+		if tokenInfo.ChainType == mdb.ChainTypeTRC20 {
+			balanceLabel = "USDT"
+		}
+		message += fmt.Sprintf("余额：%.4f %s\n", tokenInfo.Balance, balanceLabel)
 		if tokenInfo.BalanceUpdatedAt != nil {
 			message += fmt.Sprintf("更新时间：%s\n", tokenInfo.BalanceUpdatedAt.ToDateTimeString())
 		}
@@ -517,7 +522,12 @@ func CreatePaymentLink(c tb.Context, wallet *walletInfo, amount float64) error {
 		message += fmt.Sprintf("备注：%s\n", wallet.Remark)
 	}
 
-	message += fmt.Sprintf("支付金额：%.4f USDT\n\n", resp.ActualAmount)
+	// TRC20 只显示 USDT，其他链显示 USDT/USDC
+	paymentLabel := "USDT/USDC"
+	if resp.ChainType == mdb.ChainTypeTRC20 {
+		paymentLabel = "USDT"
+	}
+	message += fmt.Sprintf("支付金额：%.4f %s\n\n", resp.ActualAmount, paymentLabel)
 	message += fmt.Sprintf("收款地址：\n`%s`\n\n", resp.Token)
 	message += fmt.Sprintf("收银台：\n%s\n\n", resp.PaymentUrl)
 	message += fmt.Sprintf("过期时间：%s", time.Unix(resp.ExpirationTime, 0).Format("2006-01-02 15:04:05"))
@@ -553,7 +563,12 @@ func QueryBalance(c tb.Context, id uint64) error {
 	if tokenInfo.Remark != "" {
 		message += fmt.Sprintf("备注：%s\n", tokenInfo.Remark)
 	}
-	message += fmt.Sprintf("余额：%.4f USDT\n", balance)
+	// TRC20 只显示 USDT，其他链显示 USDT/USDC
+	balanceLabel := "USDT/USDC"
+	if tokenInfo.ChainType == mdb.ChainTypeTRC20 {
+		balanceLabel = "USDT"
+	}
+	message += fmt.Sprintf("余额：%.4f %s\n", balance, balanceLabel)
 	message += fmt.Sprintf("查询时间：%s", time.Now().Format("2006-01-02 15:04:05"))
 
 	// c.Send(message)

@@ -130,6 +130,74 @@ func (s *TRC20Service) GetTransactions(address string, startTime int64, endTime 
 	return transactions, nil
 }
 
+// GetTokenBalance 获取地址的代币余额（TRC20只支持USDT）
+func (s *TRC20Service) GetTokenBalance(address string) (*blockchain.TokenBalance, error) {
+	client := http_client.GetHttpClient()
+
+	// TronScan API获取账户的TRC20代币余额
+	resp, err := client.R().SetQueryParams(map[string]string{
+		"address": address,
+	}).Get("https://apilist.tronscanapi.com/api/account/tokens")
+
+	if err != nil {
+		return nil, fmt.Errorf("TronScan API 请求失败: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("TronScan API 返回状态码: %d", resp.StatusCode())
+	}
+
+	var apiResp struct {
+		Data []struct {
+			TokenId          string `json:"tokenId"`
+			TokenAbbr        string `json:"tokenAbbr"`
+			TokenName        string `json:"tokenName"`
+			Balance          string `json:"balance"`
+			TokenDecimal     int    `json:"tokenDecimal"`
+			TokenCanShow     int    `json:"tokenCanShow"`
+			TokenType        string `json:"tokenType"`
+			TokenLogo        string `json:"tokenLogo"`
+			Vip              bool   `json:"vip"`
+			TokenPriceInTrx  string `json:"tokenPriceInTrx"`
+			Amount           string `json:"amount"`
+			NrOfTokenHolders int    `json:"nrOfTokenHolders"`
+			TransferCount    int    `json:"transferCount"`
+		} `json:"data"`
+		Success bool `json:"success"`
+	}
+
+	err = json.Cjson.Unmarshal(resp.Body(), &apiResp)
+	if err != nil {
+		return nil, fmt.Errorf("解析 TronScan API 响应失败: %w", err)
+	}
+
+	if !apiResp.Success {
+		return nil, fmt.Errorf("TronScan API 返回失败")
+	}
+
+	balance := &blockchain.TokenBalance{}
+
+	// 查找USDT代币
+	for _, token := range apiResp.Data {
+		if token.TokenId == USDTContractAddressTRC20 && token.TokenType == "trc20" {
+			// 解析余额
+			balanceDecimal, err := decimal.NewFromString(token.Balance)
+			if err != nil {
+				continue
+			}
+			// TRC20 USDT 是 6 位小数
+			divisor := decimal.NewFromInt(1000000)
+			balance.USDT, _ = balanceDecimal.Div(divisor).Round(4).Float64()
+			break
+		}
+	}
+
+	// TRC20 不支持 USDC
+	balance.USDC = 0
+
+	return balance, nil
+}
+
 func init() {
 	// 注册TRC20服务
 	blockchain.RegisterChainService(NewTRC20Service())

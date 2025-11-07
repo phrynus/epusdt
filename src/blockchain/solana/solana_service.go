@@ -193,6 +193,62 @@ func (s *SolanaService) parseTokenTransfer(tx *rpc.GetTransactionResult, targetA
 	return nil
 }
 
+// GetTokenBalance 获取地址的代币余额（USDT + USDC）
+func (s *SolanaService) GetTokenBalance(address string) (*blockchain.TokenBalance, error) {
+	ctx := context.Background()
+
+	// 解析地址
+	pubKey, err := solana.PublicKeyFromBase58(address)
+	if err != nil {
+		return nil, fmt.Errorf("无效的 Solana 地址: %w", err)
+	}
+
+	balance := &blockchain.TokenBalance{}
+
+	// 查询 USDT 余额
+	usdtBalance, err := s.getTokenBalanceByMint(ctx, pubKey, USDTMintAddressSolana)
+	if err == nil {
+		balance.USDT = usdtBalance
+	} else {
+		log.Sugar.Debugf("[SOLANA] 查询 USDT 余额失败: %v", err)
+	}
+
+	// 查询 USDC 余额
+	usdcBalance, err := s.getTokenBalanceByMint(ctx, pubKey, USDCMintAddressSolana)
+	if err == nil {
+		balance.USDC = usdcBalance
+	} else {
+		log.Sugar.Debugf("[SOLANA] 查询 USDC 余额失败: %v", err)
+	}
+
+	return balance, nil
+}
+
+// getTokenBalanceByMint 查询指定 mint 地址的代币余额
+func (s *SolanaService) getTokenBalanceByMint(ctx context.Context, ownerPubKey solana.PublicKey, mintAddress string) (float64, error) {
+	mint := solana.MustPublicKeyFromBase58(mintAddress)
+
+	// 获取 ATA 地址（Associated Token Account）
+	ata, _, err := solana.FindAssociatedTokenAddress(ownerPubKey, mint)
+	if err != nil {
+		return 0, fmt.Errorf("获取关联Token地址失败: %w", err)
+	}
+
+	// 查询代币账户余额
+	resp, err := s.rpcClient.GetTokenAccountBalance(ctx, ata, rpc.CommitmentFinalized)
+	if err != nil {
+		return 0, fmt.Errorf("查询余额失败: %w", err)
+	}
+
+	if resp == nil || resp.Value == nil || resp.Value.UiAmount == nil {
+		return 0, nil // 账户不存在或余额为0
+	}
+
+	// 返回余额，保留4位小数
+	balance := *resp.Value.UiAmount
+	return float64(int(balance*10000)) / 10000, nil
+}
+
 func init() {
 	// 注册Solana服务，RPC端点在实际使用时从配置读取
 	blockchain.RegisterChainService(NewSolanaService())

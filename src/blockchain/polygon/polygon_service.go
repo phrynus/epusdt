@@ -219,6 +219,85 @@ func (s *PolygonService) getTransactionsByContract(address string, startTime int
 	return transactions, nil
 }
 
+// GetTokenBalance 获取地址的代币余额（USDT + USDC）
+func (s *PolygonService) GetTokenBalance(address string) (*blockchain.TokenBalance, error) {
+	apiKey := config.GetEtherscanApiKey()
+	if apiKey == "" {
+		return nil, fmt.Errorf("未配置 Etherscan API 密钥")
+	}
+
+	balance := &blockchain.TokenBalance{}
+
+	// 查询 USDT 余额
+	usdtBalance, err := s.getTokenBalanceByContract(address, USDTContractAddressPolygon, apiKey)
+	if err == nil {
+		balance.USDT = usdtBalance
+	}
+
+	// 查询 USDC 余额
+	usdcBalance, err := s.getTokenBalanceByContract(address, USDCContractAddressPolygon, apiKey)
+	if err == nil {
+		balance.USDC = usdcBalance
+	}
+
+	return balance, nil
+}
+
+// getTokenBalanceByContract 查询指定合约的代币余额
+func (s *PolygonService) getTokenBalanceByContract(address, contractAddress, apiKey string) (float64, error) {
+	// 速率限制
+	s.mu.Lock()
+	<-s.rateLimiter.C
+	s.mu.Unlock()
+
+	client := http_client.GetHttpClient()
+
+	resp, err := client.R().SetQueryParams(map[string]string{
+		"chainid":         PolygonChainID,
+		"module":          "account",
+		"action":          "tokenbalance",
+		"contractaddress": contractAddress,
+		"address":         address,
+		"tag":             "latest",
+		"apikey":          apiKey,
+	}).Get(EtherscanApiV2Uri)
+
+	if err != nil {
+		return 0, fmt.Errorf("Etherscan API 请求失败: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return 0, fmt.Errorf("Etherscan API 返回状态码: %d", resp.StatusCode())
+	}
+
+	var apiResp struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+		Result  string `json:"result"`
+	}
+
+	err = json.Cjson.Unmarshal(resp.Body(), &apiResp)
+	if err != nil {
+		return 0, fmt.Errorf("解析 Etherscan API 响应失败: %w", err)
+	}
+
+	if apiResp.Status != "1" {
+		return 0, fmt.Errorf("API 返回错误: %s", apiResp.Message)
+	}
+
+	// 解析余额，Polygon USDT/USDC 是 6 位小数
+	balanceDecimal, err := decimal.NewFromString(apiResp.Result)
+	if err != nil {
+		return 0, fmt.Errorf("解析余额失败: %w", err)
+	}
+
+	// Polygon 上的 USDT 和 USDC 都是 6 位小数
+	divisor := decimal.NewFromInt(1000000)
+	balance, _ := balanceDecimal.Div(divisor).Round(4).Float64()
+
+	return balance, nil
+}
+
 func init() {
 	// 注册Polygon服务
 	blockchain.RegisterChainService(NewPolygonService())

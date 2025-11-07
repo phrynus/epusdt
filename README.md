@@ -13,7 +13,7 @@
 ## 调整
 
 - [√] 支持多链（BEP20、ERC20、Polygon、Solana、TRC20）
-- [√] 支持USDC和USDT代币(TRC20只支持USDT代币)
+- [√] 支持USDC和USDT(TRC20只支持USDT)
 - [√] 去掉Redis
 - [√] Telegram
   - [√] 生成订单(无法指定链)

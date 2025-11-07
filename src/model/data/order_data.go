@@ -123,3 +123,24 @@ func UnLockTransactionWithChainType(token string, amount float64, chainType stri
 	err := dao.CacheDel(ctx, cacheKey)
 	return err
 }
+
+// HasPendingOrderByAddress 检查指定地址是否有待支付订单（通过缓存检查）
+func HasPendingOrderByAddress(token string, chainType string) (bool, error) {
+	ctx := context.Background()
+	// 缓存 key 格式: wallet:地址_金额_链类型
+	// 我们需要查询缓存表中是否有该地址的待支付订单
+	cacheKeyPrefix := fmt.Sprintf("wallet:%s_", token)
+
+	// 使用数据库查询缓存表，检查是否存在以该前缀开头且包含链类型的key
+	var count int64
+	query := `SELECT COUNT(*) FROM cache 
+			  WHERE cache_key LIKE ? 
+			  AND cache_key LIKE ?
+			  AND (expires_at IS NULL OR expires_at > NOW())`
+	err := dao.Mdb.WithContext(ctx).Raw(query, cacheKeyPrefix+"%", "%_"+chainType).Row().Scan(&count)
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
