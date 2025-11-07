@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	EtherscanApiV2Uri          = "https://api.etherscan.io/v2/api"
+	EtherscanApiV2Uri          = "https://api.etherscan.io/v2/api"            // Etherscan API V2
 	PolygonChainID             = "137"                                        // Polygon Mainnet
 	USDTContractAddressPolygon = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F" // USDT on Polygon
 	USDCContractAddressPolygon = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" // USDC on Polygon
@@ -142,13 +142,13 @@ func (s *PolygonService) getTransactionsByContract(address string, startTime int
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("Etherscan API V2 返回状态码: %d", resp.StatusCode())
+		return nil, fmt.Errorf("Etherscan API V2 返回状态码: %d, 响应: %s", resp.StatusCode(), string(resp.Body()))
 	}
 
 	var polygonScanResp PolygonScanResponse
 	err = json.Cjson.Unmarshal(resp.Body(), &polygonScanResp)
 	if err != nil {
-		return nil, fmt.Errorf("解析 Etherscan API V2 响应失败: %w", err)
+		return nil, fmt.Errorf("解析 Etherscan API V2 响应失败: %w, 响应内容: %s", err, string(resp.Body()))
 	}
 
 	// 如果API返回错误，返回空数组而不是错误，降级处理
@@ -263,11 +263,11 @@ func (s *PolygonService) getTokenBalanceByContract(address, contractAddress, api
 	}).Get(EtherscanApiV2Uri)
 
 	if err != nil {
-		return 0, fmt.Errorf("Etherscan API 请求失败: %w", err)
+		return 0, fmt.Errorf("Etherscan API V2 请求失败: %w", err)
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return 0, fmt.Errorf("Etherscan API 返回状态码: %d", resp.StatusCode())
+		return 0, fmt.Errorf("Etherscan API V2 返回状态码: %d, 响应: %s", resp.StatusCode(), string(resp.Body()))
 	}
 
 	var apiResp struct {
@@ -278,11 +278,11 @@ func (s *PolygonService) getTokenBalanceByContract(address, contractAddress, api
 
 	err = json.Cjson.Unmarshal(resp.Body(), &apiResp)
 	if err != nil {
-		return 0, fmt.Errorf("解析 Etherscan API 响应失败: %w", err)
+		return 0, fmt.Errorf("解析 Etherscan API V2 响应失败: %w, 响应内容: %s", err, string(resp.Body()))
 	}
 
 	if apiResp.Status != "1" {
-		return 0, fmt.Errorf("API 返回错误: %s", apiResp.Message)
+		return 0, fmt.Errorf("Etherscan API V2 返回错误: %s", apiResp.Message)
 	}
 
 	// 解析余额，Polygon USDT/USDC 是 6 位小数

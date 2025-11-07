@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	EtherscanApiV2Uri        = "https://api.etherscan.io/v2/api"
+	EtherscanApiV2Uri        = "https://api.etherscan.io/v2/api"            // Etherscan API V2
 	BSCChainID               = "56"                                         // BNB Smart Chain
 	USDTContractAddressBEP20 = "0x55d398326f99059fF775485246999027B3197955" // USDT on BSC
 	USDCContractAddressBEP20 = "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d" // USDC on BSC
@@ -142,13 +142,13 @@ func (s *BEP20Service) getTransactionsByContract(address string, startTime int64
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("Etherscan API V2 返回状态码: %d", resp.StatusCode())
+		return nil, fmt.Errorf("Etherscan API V2 返回状态码: %d, 响应: %s", resp.StatusCode(), string(resp.Body()))
 	}
 
 	var bscScanResp BscScanResponse
 	err = json.Cjson.Unmarshal(resp.Body(), &bscScanResp)
 	if err != nil {
-		return nil, fmt.Errorf("解析 Etherscan API V2 响应失败: %w", err)
+		return nil, fmt.Errorf("解析 Etherscan API V2 响应失败: %w, 响应内容: %s", err, string(resp.Body()))
 	}
 
 	// 如果API返回错误，返回空数组而不是错误，降级处理
@@ -230,15 +230,19 @@ func (s *BEP20Service) GetTokenBalance(address string) (*blockchain.TokenBalance
 
 	// 查询 USDT 余额
 	usdtBalance, err := s.getTokenBalanceByContract(address, USDTContractAddressBEP20, apiKey)
-	if err == nil {
-		balance.USDT = usdtBalance
+	if err != nil {
+		fmt.Println(err)
+		usdtBalance = 0
 	}
+	balance.USDT = usdtBalance
 
 	// 查询 USDC 余额
 	usdcBalance, err := s.getTokenBalanceByContract(address, USDCContractAddressBEP20, apiKey)
-	if err == nil {
-		balance.USDC = usdcBalance
+	if err != nil {
+		fmt.Println(err)
+		usdcBalance = 0
 	}
+	balance.USDC = usdcBalance
 
 	return balance, nil
 }
@@ -263,11 +267,11 @@ func (s *BEP20Service) getTokenBalanceByContract(address, contractAddress, apiKe
 	}).Get(EtherscanApiV2Uri)
 
 	if err != nil {
-		return 0, fmt.Errorf("Etherscan API 请求失败: %w", err)
+		return 0, fmt.Errorf("Etherscan API V2 请求失败: %w", err)
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return 0, fmt.Errorf("Etherscan API 返回状态码: %d", resp.StatusCode())
+		return 0, fmt.Errorf("Etherscan API V2 返回状态码: %d, 响应: %s", resp.StatusCode(), string(resp.Body()))
 	}
 
 	var apiResp struct {
@@ -277,12 +281,13 @@ func (s *BEP20Service) getTokenBalanceByContract(address, contractAddress, apiKe
 	}
 
 	err = json.Cjson.Unmarshal(resp.Body(), &apiResp)
+
 	if err != nil {
-		return 0, fmt.Errorf("解析 Etherscan API 响应失败: %w", err)
+		return 0, fmt.Errorf("解析 Etherscan API V2 响应失败: %w, 响应内容: %s", err, string(resp.Body()))
 	}
 
 	if apiResp.Status != "1" {
-		return 0, fmt.Errorf("API 返回错误: %s", apiResp.Message)
+		return 0, fmt.Errorf("Etherscan API V2 返回错误: %s", apiResp)
 	}
 
 	// 解析余额，BEP20 USDT 是 18 位小数，USDC 是 18 位小数

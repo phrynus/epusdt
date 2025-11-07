@@ -29,7 +29,6 @@ func (r *ListenBlockchainJob) Run() {
 	}
 
 	if len(walletAddressList) <= 0 {
-		log.Sugar.Debugf("[%s] 未配置监控钱包地址", r.ChainType)
 		return
 	}
 
@@ -48,8 +47,6 @@ func (r *ListenBlockchainJob) Run() {
 
 		if hasPendingOrder {
 			activeAddresses = append(activeAddresses, address.Token)
-		} else {
-			log.Sugar.Debugf("[%s] 跳过无待支付订单的地址: %s", r.ChainType, address.Token)
 		}
 	}
 

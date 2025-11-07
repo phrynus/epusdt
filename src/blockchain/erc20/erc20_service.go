@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	EtherscanApiV2Uri        = "https://api.etherscan.io/v2/api"
+	EtherscanApiV2Uri        = "https://api.etherscan.io/v2/api"            // Etherscan API V2
 	EthereumChainID          = "1"                                          // Ethereum Mainnet
 	USDTContractAddressERC20 = "0xdac17f958d2ee523a2206206994597c13d831ec7" // USDT on Ethereum
 	USDCContractAddressERC20 = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" // USDC on Ethereum
@@ -138,17 +138,17 @@ func (s *ERC20Service) getTransactionsByContract(address string, startTime int64
 	}).Get(EtherscanApiV2Uri)
 
 	if err != nil {
-		return nil, fmt.Errorf("Etherscan API V2 请求失败: %w", err)
+		return nil, fmt.Errorf("Etherscan API 请求失败: %w", err)
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("Etherscan API V2 返回状态码: %d", resp.StatusCode())
+		return nil, fmt.Errorf("Etherscan API 返回状态码: %d, 响应: %s", resp.StatusCode(), string(resp.Body()))
 	}
 
 	var etherscanResp EtherscanResponse
 	err = json.Cjson.Unmarshal(resp.Body(), &etherscanResp)
 	if err != nil {
-		return nil, fmt.Errorf("解析 Etherscan API V2 响应失败: %w", err)
+		return nil, fmt.Errorf("解析 Etherscan API 响应失败: %w, 响应内容: %s", err, string(resp.Body()))
 	}
 
 	// 如果 API 返回错误，返回空数组而不是错误，降级处理

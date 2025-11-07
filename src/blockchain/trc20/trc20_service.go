@@ -134,60 +134,47 @@ func (s *TRC20Service) GetTransactions(address string, startTime int64, endTime 
 func (s *TRC20Service) GetTokenBalance(address string) (*blockchain.TokenBalance, error) {
 	client := http_client.GetHttpClient()
 
-	// TronScan API获取账户的TRC20代币余额
-	resp, err := client.R().SetQueryParams(map[string]string{
-		"address": address,
-	}).Get("https://apilist.tronscanapi.com/api/account/tokens")
+	// 使用 TronScan 公开 API 获取账户信息（包含所有TRC20代币）
+	// 此API无需认证，可公开访问
+	resp, err := client.R().Get(fmt.Sprintf("https://apilist.tronscanapi.com/api/account?address=%s", address))
 
 	if err != nil {
 		return nil, fmt.Errorf("TronScan API 请求失败: %w", err)
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("TronScan API 返回状态码: %d", resp.StatusCode())
+		return nil, fmt.Errorf("TronScan API 返回状态码: %d, 响应: %s", resp.StatusCode(), string(resp.Body()))
 	}
 
+	// 解析账户信息
 	var apiResp struct {
-		Data []struct {
-			TokenId          string `json:"tokenId"`
-			TokenAbbr        string `json:"tokenAbbr"`
-			TokenName        string `json:"tokenName"`
-			Balance          string `json:"balance"`
-			TokenDecimal     int    `json:"tokenDecimal"`
-			TokenCanShow     int    `json:"tokenCanShow"`
-			TokenType        string `json:"tokenType"`
-			TokenLogo        string `json:"tokenLogo"`
-			Vip              bool   `json:"vip"`
-			TokenPriceInTrx  string `json:"tokenPriceInTrx"`
-			Amount           string `json:"amount"`
-			NrOfTokenHolders int    `json:"nrOfTokenHolders"`
-			TransferCount    int    `json:"transferCount"`
-		} `json:"data"`
-		Success bool `json:"success"`
+		Trc20TokenBalances []struct {
+			Balance      string `json:"balance"`
+			TokenId      string `json:"tokenId"`
+			TokenName    string `json:"tokenName"`
+			TokenAbbr    string `json:"tokenAbbr"`
+			TokenDecimal int    `json:"tokenDecimal"`
+			TokenCanShow int    `json:"tokenCanShow"`
+		} `json:"trc20token_balances"`
 	}
 
 	err = json.Cjson.Unmarshal(resp.Body(), &apiResp)
 	if err != nil {
-		return nil, fmt.Errorf("解析 TronScan API 响应失败: %w", err)
-	}
-
-	if !apiResp.Success {
-		return nil, fmt.Errorf("TronScan API 返回失败")
+		return nil, fmt.Errorf("解析 TronScan API 响应失败: %w, 响应内容: %s", err, string(resp.Body()))
 	}
 
 	balance := &blockchain.TokenBalance{}
 
-	// 查找USDT代币
-	for _, token := range apiResp.Data {
-		if token.TokenId == USDTContractAddressTRC20 && token.TokenType == "trc20" {
+	// 查找USDT代币余额
+	for _, token := range apiResp.Trc20TokenBalances {
+		if token.TokenId == USDTContractAddressTRC20 {
 			// 解析余额
 			balanceDecimal, err := decimal.NewFromString(token.Balance)
-			if err != nil {
-				continue
+			if err == nil {
+				// TRC20 USDT 是 6 位小数
+				divisor := decimal.NewFromInt(1000000)
+				balance.USDT, _ = balanceDecimal.Div(divisor).Round(4).Float64()
 			}
-			// TRC20 USDT 是 6 位小数
-			divisor := decimal.NewFromInt(1000000)
-			balance.USDT, _ = balanceDecimal.Div(divisor).Round(4).Float64()
 			break
 		}
 	}
