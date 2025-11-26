@@ -12,7 +12,7 @@
 
 ## 调整
 
-- [√] 支持多链（BEP20、ERC20、Polygon、Solana、TRC20）
+- [√] 支持多链（BEP20、ERC20、Polygon、Solana、TRC20、ARB）
 - [√] 支持USDC和USDT(TRC20只支持USDT)
 - [√] 去掉Redis
 - [√] Telegram

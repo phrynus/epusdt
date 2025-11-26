@@ -43,6 +43,11 @@ func Start() {
 	log.Sugar.Infof("Polygon监控已启动，每%d秒执行", listenInterval)
 	time.Sleep(1 * time.Second)
 
+	// ARB钱包监听
+	c.AddJob(cronExpr, NewListenBlockchainJob(mdb.ChainTypeARB))
+	log.Sugar.Infof("ARB监控已启动，每%d秒执行", listenInterval)
+	time.Sleep(1 * time.Second)
+
 	// Solana钱包监听
 	c.AddJob(cronExpr, NewListenBlockchainJob(mdb.ChainTypeSOLANA))
 	log.Sugar.Infof("Solana监控已启动，每%d秒执行", listenInterval)

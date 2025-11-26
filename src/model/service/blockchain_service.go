@@ -29,6 +29,8 @@ func GetBlockchainExplorerURL(chainType string, txHash string) string {
 		return fmt.Sprintf("https://polygonscan.com/tx/%s", txHash)
 	case mdb.ChainTypeSOLANA:
 		return fmt.Sprintf("https://solscan.io/tx/%s", txHash)
+	case mdb.ChainTypeARB:
+		return fmt.Sprintf("https://arbiscan.io/tx/%s", txHash)
 	default:
 		return ""
 	}
@@ -42,6 +44,7 @@ func GetTokenSymbol(contractAddress string, chainType string) string {
 		"TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t":           "USDT", // TRC20
 		"0x55d398326f99059fF775485246999027B3197955":   "USDT", // BEP20
 		"0xc2132D05D31c914a87C6611C10748AEb04B58e8F":   "USDT", // Polygon
+		"0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9":   "USDT", // Arbitrum
 		"Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": "USDT", // Solana
 	}
 
@@ -50,6 +53,7 @@ func GetTokenSymbol(contractAddress string, chainType string) string {
 		"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48":   "USDC", // ERC20
 		"0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d":   "USDC", // BEP20
 		"0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174":   "USDC", // Polygon
+		"0xaf88d065e77c8cC2239327C5EDb3A432268e5831":   "USDC", // Arbitrum
 		"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "USDC", // Solana
 	}
 

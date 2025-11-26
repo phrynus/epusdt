@@ -1,5 +1,8 @@
 package main
 
+// export CGO_ENABLED=0 && go build -ldflags="-s -w" -o epusdt .
+// $env:GOOS="windows"; $env:GOARCH="amd64"; $env:CGO_ENABLED="0"; go build -ldflags="-s -w" -o epusdt.exe .
+
 import (
 	"github.com/assimon/luuu/bootstrap"
 	"github.com/assimon/luuu/config"

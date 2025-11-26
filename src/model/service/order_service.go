@@ -67,6 +67,7 @@ func CreateTransaction(req *request.CreateTransactionRequest) (*response.CreateT
 		mdb.ChainTypeBEP20:   true,
 		mdb.ChainTypeSOLANA:  true,
 		mdb.ChainTypePOLYGON: true,
+		mdb.ChainTypeARB:     true,
 	}
 	if !validChainTypes[chainType] {
 		chainType = mdb.ChainTypeTRC20 // 无效时使用默认值

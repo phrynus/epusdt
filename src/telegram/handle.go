@@ -241,7 +241,7 @@ func ShowWalletList(c tb.Context) error {
 		}
 
 		// 显示每个链的钱包
-		chainOrder := []string{mdb.ChainTypeTRC20, mdb.ChainTypeERC20, mdb.ChainTypeBEP20, mdb.ChainTypePOLYGON, mdb.ChainTypeSOLANA}
+		chainOrder := []string{mdb.ChainTypeTRC20, mdb.ChainTypeERC20, mdb.ChainTypeBEP20, mdb.ChainTypePOLYGON, mdb.ChainTypeARB, mdb.ChainTypeSOLANA}
 		for _, chainType := range chainOrder {
 			if walletList, ok := chainGroups[chainType]; ok && len(walletList) > 0 {
 				// message += fmt.Sprintf("[%s]\n", chainType)
@@ -299,6 +299,7 @@ func ShowChainTypeMenu(c tb.Context) error {
 		{{Text: "ERC20 (以太坊)", Data: "select_chain:ERC20"}},
 		{{Text: "BEP20 (币安链)", Data: "select_chain:BEP20"}},
 		{{Text: "POLYGON (Polygon)", Data: "select_chain:POLYGON"}},
+		{{Text: "ARB (Arbitrum)", Data: "select_chain:ARB"}},
 		{{Text: "SOLANA", Data: "select_chain:SOLANA"}},
 		{{Text: "返回", Data: "back_to_list"}},
 	}
@@ -325,6 +326,8 @@ func RequestWalletAddress(c tb.Context, chainType string) error {
 	case mdb.ChainTypeBEP20:
 		message += "格式：以0x开头，42位字符\n示例：0x9f8620f01a98Ca608db53842e3989f6C89Cc7519"
 	case mdb.ChainTypePOLYGON:
+		message += "格式：以0x开头，42位字符\n示例：0x9f8620f01a98Ca608db53842e3989f6C89Cc7519"
+	case mdb.ChainTypeARB:
 		message += "格式：以0x开头，42位字符\n示例：0x9f8620f01a98Ca608db53842e3989f6C89Cc7519"
 	case mdb.ChainTypeSOLANA:
 		message += "格式：Base58编码，32-44位字符\n示例：2rJqjpvAuLjdVerBacXGraHxVcVkQcuKGvQUi785FUfa"

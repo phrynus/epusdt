@@ -10,6 +10,7 @@ import (
 	"github.com/assimon/luuu/util/log"
 
 	// 初始化区块链服务
+	_ "github.com/assimon/luuu/blockchain/arb"
 	_ "github.com/assimon/luuu/blockchain/bep20"
 	_ "github.com/assimon/luuu/blockchain/erc20"
 	_ "github.com/assimon/luuu/blockchain/polygon"
