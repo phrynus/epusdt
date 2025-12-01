@@ -2,6 +2,7 @@ package bep20
 
 import (
 	"fmt"
+	"math/big"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -18,8 +19,6 @@ import (
 )
 
 const (
-	EtherscanApiV2Uri        = "https://api.etherscan.io/v2/api"            // Etherscan API V2
-	BSCChainID               = "56"                                         // BNB Smart Chain
 	USDTContractAddressBEP20 = "0x55d398326f99059fF775485246999027B3197955" // USDT on BSC
 	USDCContractAddressBEP20 = "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d" // USDC on BSC
 )
@@ -105,11 +104,11 @@ func (s *BEP20Service) GetTransactions(address string, startTime int64, endTime 
 	return allTxs, nil
 }
 
-// getTransactionsByContract 查询指定合约地址的交易
+// getTransactionsByContract 查询指定合约地址的交易（使用 OnFinality RPC）
 func (s *BEP20Service) getTransactionsByContract(address string, startTime int64, endTime int64, contractAddress string) ([]blockchain.Transaction, error) {
-	apiKey := config.GetEtherscanApiKey()
-	if apiKey == "" {
-		return nil, fmt.Errorf("未配置 Etherscan API 密钥")
+	rpcUrl := config.GetBep20RpcUrl()
+	if rpcUrl == "" {
+		return nil, fmt.Errorf("未配置 BEP20 RPC URL")
 	}
 
 	// 速率限制，等待令牌
@@ -119,99 +118,173 @@ func (s *BEP20Service) getTransactionsByContract(address string, startTime int64
 
 	client := http_client.GetHttpClient()
 
-	// 转换时间戳（毫秒转秒）
-	startBlock := "0"
-	endBlock := "99999999"
+	// BSC 平均 3 秒一个块，24 小时约 28800 个块
+	blockCount := int64(28800)
 
-	resp, err := client.R().SetQueryParams(map[string]string{
-		"chainid":         BSCChainID,
-		"module":          "account",
-		"action":          "tokentx",
-		"contractaddress": contractAddress,
-		"address":         address,
-		"page":            "1",
-		"offset":          "100",
-		"startblock":      startBlock,
-		"endblock":        endBlock,
-		"sort":            "desc",
-		"apikey":          apiKey,
-	}).Get(EtherscanApiV2Uri)
+	// 获取最新区块号
+	latestBlockResp, err := client.R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"method":  "eth_blockNumber",
+			"params":  []interface{}{},
+			"id":      1,
+		}).
+		Post(rpcUrl)
 
 	if err != nil {
-		return nil, fmt.Errorf("Etherscan API V2 请求失败: %w", err)
+		return nil, fmt.Errorf("获取最新区块失败: %w", err)
+	}
+
+	var blockNumResp struct {
+		Result string `json:"result"`
+	}
+	if err := json.Cjson.Unmarshal(latestBlockResp.Body(), &blockNumResp); err != nil {
+		return nil, fmt.Errorf("解析区块号失败: %w", err)
+	}
+
+	// 将十六进制区块号转换为十进制
+	latestBlock, _ := strconv.ParseInt(strings.TrimPrefix(blockNumResp.Result, "0x"), 16, 64)
+	startBlock := latestBlock - blockCount
+
+	// Transfer 事件签名
+	transferEventSignature := "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+	// 构造接收地址 topic（补齐到 32 字节）
+	toAddress := "0x" + strings.Repeat("0", 24) + strings.TrimPrefix(strings.ToLower(address), "0x")
+
+	// 使用 eth_getLogs 查询事件
+	resp, err := client.R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(map[string]interface{}{
+			"id":      1,
+			"jsonrpc": "2.0",
+			"method":  "eth_getLogs",
+			"params": []interface{}{
+				map[string]interface{}{
+					"fromBlock": fmt.Sprintf("0x%x", startBlock),
+					"toBlock":   fmt.Sprintf("0x%x", latestBlock),
+					"address":   contractAddress,
+					"topics": []interface{}{
+						transferEventSignature,
+						nil,
+						toAddress,
+					},
+				},
+			},
+		}).
+		Post(rpcUrl)
+
+	if err != nil {
+		return nil, fmt.Errorf("eth_getLogs 请求失败: %w", err)
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return nil, fmt.Errorf("Etherscan API V2 返回状态码: %d, 响应: %s", resp.StatusCode(), string(resp.Body()))
+		return nil, fmt.Errorf("RPC 返回状态码: %d, 响应: %s", resp.StatusCode(), string(resp.Body()))
 	}
 
-	var bscScanResp BscScanResponse
-	err = json.Cjson.Unmarshal(resp.Body(), &bscScanResp)
-	if err != nil {
-		return nil, fmt.Errorf("解析 Etherscan API V2 响应失败: %w, 响应内容: %s", err, string(resp.Body()))
+	// 解析 JSON-RPC 响应
+	var rpcResp struct {
+		Result []struct {
+			BlockNumber     string   `json:"blockNumber"`
+			TransactionHash string   `json:"transactionHash"`
+			Topics          []string `json:"topics"`
+			Data            string   `json:"data"`
+		} `json:"result"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 
-	// 如果API返回错误，返回空数组而不是错误，降级处理
-	if bscScanResp.Status != "1" {
-		// 如果是速率限制错误，稍微延迟一下
-		if bscScanResp.Message == "NOTOK" {
-			time.Sleep(time.Second * 2)
-		}
+	if err := json.Cjson.Unmarshal(resp.Body(), &rpcResp); err != nil {
+		return nil, fmt.Errorf("解析 RPC 响应失败: %w", err)
+	}
+
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("RPC 错误: %s", rpcResp.Error.Message)
+	}
+
+	// 如果没有结果，返回空数组
+	if len(rpcResp.Result) == 0 {
 		return []blockchain.Transaction{}, nil
 	}
 
 	transactions := make([]blockchain.Transaction, 0)
-	for _, transfer := range bscScanResp.Result {
-		// 只处理接收到的交易，0x开头的地址需要忽略大小写比对
-		if !strings.EqualFold(transfer.To, address) {
-			continue
-		}
+	for _, log := range rpcResp.Result {
+		// 解析区块号
+		blockNum, _ := strconv.ParseInt(strings.TrimPrefix(log.BlockNumber, "0x"), 16, 64)
 
-		// 解析时间戳
-		timestamp, err := strconv.ParseInt(transfer.TimeStamp, 10, 64)
+		// 获取区块信息以获取时间戳
+		blockResp, err := client.R().
+			SetHeader("Content-Type", "application/json").
+			SetBody(map[string]interface{}{
+				"jsonrpc": "2.0",
+				"method":  "eth_getBlockByNumber",
+				"params":  []interface{}{fmt.Sprintf("0x%x", blockNum), false},
+				"id":      1,
+			}).
+			Post(rpcUrl)
+
 		if err != nil {
 			continue
 		}
 
-		// 转换为毫秒
+		var blockInfo struct {
+			Result struct {
+				Timestamp string `json:"timestamp"`
+			} `json:"result"`
+		}
+		if err := json.Cjson.Unmarshal(blockResp.Body(), &blockInfo); err != nil {
+			continue
+		}
+
+		// 解析时间戳
+		timestamp, _ := strconv.ParseInt(strings.TrimPrefix(blockInfo.Result.Timestamp, "0x"), 16, 64)
 		timestampMs := timestamp * 1000
+
 		// 检查时间范围
 		if timestampMs < startTime || timestampMs > endTime {
 			continue
 		}
 
-		// 转换金额，BEP20 USDT/USDC通常是18位小数
-		decimalQuant, err := decimal.NewFromString(transfer.Value)
-		if err != nil {
+		// 解析金额（data 字段）
+		valueHex := strings.TrimPrefix(log.Data, "0x")
+		if len(valueHex) == 0 {
 			continue
 		}
 
-		// 获取小数位
-		tokenDecimal, err := strconv.Atoi(transfer.TokenDecimal)
-		if err != nil {
-			tokenDecimal = 18 // 默认为18位
+		// 转换十六进制金额为十进制
+		valueBigInt := new(big.Int)
+		if _, ok := valueBigInt.SetString(valueHex, 16); !ok {
+			continue
 		}
 
+		// BEP20 USDT/USDC 都是 18 位小数
 		divisor := decimal.NewFromFloat(1)
-		for i := 0; i < tokenDecimal; i++ {
+		for i := 0; i < 18; i++ {
 			divisor = divisor.Mul(decimal.NewFromInt(10))
 		}
 
-		// 金额统一保留4位小数，避免精度不匹配问题，比如12.31和12.3100
-		amount, _ := decimalQuant.Div(divisor).Round(4).Float64()
+		// 转换金额
+		valueDecimal := decimal.NewFromBigInt(valueBigInt, 0)
+		amount, _ := valueDecimal.Div(divisor).Round(4).Float64()
 
-		// 解析确认数
-		confirmations, _ := strconv.Atoi(transfer.Confirmations)
+		// 解析发送地址（topic[1]）
+		fromAddr := ""
+		if len(log.Topics) > 1 {
+			fromAddr = "0x" + log.Topics[1][26:]
+		}
 
 		tx := blockchain.Transaction{
-			Hash:            transfer.Hash,
-			From:            transfer.From,
-			To:              transfer.To,
+			Hash:            log.TransactionHash,
+			From:            fromAddr,
+			To:              address,
 			Amount:          amount,
 			BlockTimestamp:  timestampMs,
-			Confirmations:   confirmations,
+			Confirmations:   0,
 			Status:          "SUCCESS",
-			ContractAddress: contractAddress, // 使用实际的合约地址
+			ContractAddress: contractAddress,
 		}
 		transactions = append(transactions, tx)
 	}
@@ -247,8 +320,10 @@ func (s *BEP20Service) GetTokenBalance(address string) (*blockchain.TokenBalance
 	return balance, nil
 }
 
-// getTokenBalanceByContract 查询指定合约的代币余额
+// getTokenBalanceByContract 查询指定合约的代币余额（使用 RPC）
 func (s *BEP20Service) getTokenBalanceByContract(address, contractAddress, apiKey string) (float64, error) {
+	rpcUrl := config.GetBep20RpcUrl()
+
 	// 速率限制
 	s.mu.Lock()
 	<-s.rateLimiter.C
@@ -256,48 +331,67 @@ func (s *BEP20Service) getTokenBalanceByContract(address, contractAddress, apiKe
 
 	client := http_client.GetHttpClient()
 
-	resp, err := client.R().SetQueryParams(map[string]string{
-		"chainid":         BSCChainID,
-		"module":          "account",
-		"action":          "tokenbalance",
-		"contractaddress": contractAddress,
-		"address":         address,
-		"tag":             "latest",
-		"apikey":          apiKey,
-	}).Get(EtherscanApiV2Uri)
+	// balanceOf 函数签名: balanceOf(address)
+	balanceOfSignature := "0x70a08231"
+	// 地址需要补齐到 32 字节
+	paddedAddress := "0x" + strings.Repeat("0", 24) + strings.TrimPrefix(strings.ToLower(address), "0x")
+	data := balanceOfSignature + strings.TrimPrefix(paddedAddress, "0x")
+
+	resp, err := client.R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"method":  "eth_call",
+			"params": []interface{}{
+				map[string]interface{}{
+					"to":   contractAddress,
+					"data": data,
+				},
+				"latest",
+			},
+			"id": 1,
+		}).
+		Post(rpcUrl)
 
 	if err != nil {
-		return 0, fmt.Errorf("Etherscan API V2 请求失败: %w", err)
+		return 0, fmt.Errorf("RPC 请求失败: %w", err)
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		return 0, fmt.Errorf("Etherscan API V2 返回状态码: %d, 响应: %s", resp.StatusCode(), string(resp.Body()))
+		return 0, fmt.Errorf("RPC 返回状态码: %d, 响应: %s", resp.StatusCode(), string(resp.Body()))
 	}
 
 	var apiResp struct {
-		Status  string `json:"status"`
-		Message string `json:"message"`
-		Result  string `json:"result"`
+		Result string `json:"result"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 
 	err = json.Cjson.Unmarshal(resp.Body(), &apiResp)
-
 	if err != nil {
-		return 0, fmt.Errorf("解析 Etherscan API V2 响应失败: %w, 响应内容: %s", err, string(resp.Body()))
+		return 0, fmt.Errorf("解析 RPC 响应失败: %w, 响应内容: %s", err, string(resp.Body()))
 	}
 
-	if apiResp.Status != "1" {
-		return 0, fmt.Errorf("Etherscan API V2 返回错误: %s", apiResp)
+	if apiResp.Error != nil {
+		return 0, fmt.Errorf("RPC 错误: %s", apiResp.Error.Message)
 	}
 
-	// 解析余额，BEP20 USDT 是 18 位小数，USDC 是 18 位小数
-	balanceDecimal, err := decimal.NewFromString(apiResp.Result)
-	if err != nil {
-		return 0, fmt.Errorf("解析余额失败: %w", err)
+	// 解析余额（十六进制转十进制）
+	balanceHex := strings.TrimPrefix(apiResp.Result, "0x")
+	if balanceHex == "" {
+		return 0, nil
+	}
+
+	balanceBigInt := new(big.Int)
+	if _, ok := balanceBigInt.SetString(balanceHex, 16); !ok {
+		return 0, fmt.Errorf("无法解析余额: %s", balanceHex)
 	}
 
 	// BSC 上的 USDT 和 USDC 都是 18 位小数
 	divisor := decimal.NewFromInt(1000000000000000000)
+	balanceDecimal := decimal.NewFromBigInt(balanceBigInt, 0)
 	balance, _ := balanceDecimal.Div(divisor).Round(4).Float64()
 
 	return balance, nil

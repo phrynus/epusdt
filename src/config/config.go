@@ -27,6 +27,7 @@ var (
 	EtherscanApiKey          string
 	BscScanApiKey            string // 已弃用，请使用 EtherscanApiKey，Etherscan API V2 支持多链
 	SolanaRpcEndpoint        string
+	Bep20RpcUrl              string // BEP20 RPC URL
 )
 
 func Init() {
@@ -79,6 +80,7 @@ func Init() {
 	EtherscanApiKey = viper.GetString("etherscan_api_key")
 	BscScanApiKey = viper.GetString("bscscan_api_key")
 	SolanaRpcEndpoint = viper.GetString("solana_rpc_endpoint")
+	Bep20RpcUrl = viper.GetString("bep20_rpc_url")
 	fmt.Println(SolanaRpcEndpoint)
 }
 
@@ -152,4 +154,12 @@ func GetBlockchainListenInterval() int {
 		return 10 // 默认10秒
 	}
 	return BlockchainListenInterval
+}
+
+// GetBep20RpcUrl 获取 BEP20 RPC URL
+func GetBep20RpcUrl() string {
+	if Bep20RpcUrl == "" {
+		return "https://bnb.api.onfinality.io/rpc" // 默认 OnFinality RPC
+	}
+	return Bep20RpcUrl
 }
