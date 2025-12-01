@@ -5,3 +5,4 @@ src/.env
 epusdt
 epusdt.exe
 src/src.zip
+src/cmd/test_order/main.go

@@ -270,6 +270,13 @@
         flex: 1;
         text-align: center;
       }
+      #chain-info {
+        font-size: 14px;
+        text-align: center;
+        color: #f00;
+        line-height: 1.5;
+        margin-bottom: 15px;
+      }
     </style>
   </head>
 
@@ -322,17 +329,17 @@
   // 显示链信息
   const chainType = "{{.ChainType}}";
   const chainInfo = {
-    'TRC20': '波场网络 - Tron - 不支持USDC',
-    'ERC20': '以太坊网络 - Ethereum',
-    'BEP20': '币安智能链 - BSC',
-    'SOLANA': 'Solana网络 - Solana',
-    'POLYGON': 'Polygon网络 - Polygon / Matic',
-    'ARB': 'Arbitrum网络 - Arbitrum'
+    'TRC20': '波场网络 - Tron - <b>只支持USDT</b>',
+    'ERC20': '以太坊网络 - Ethereum - <b>支持USDC和USDT</b>',
+    'BEP20': '币安智能链 - BSC - <b>支持USDC和USDT</b>',
+    'SOLANA': 'Solana网络 - Solana - <b>支持USDC和USDT</b>',
+    'POLYGON': 'Polygon网络 - Polygon / Matic - <b>支持USDC和USDT</b>',
+    'ARB': 'Arbitrum网络 - Arbitrum - <b>支持USDC和USDT</b>'
   };
-  $('#chain-info').text(chainInfo[chainType] || '');
+  $('#chain-info').html(chainInfo[chainType] || '');
 
   if (chainType == 'TRC20') {
-    $('#srhbrbrdbdr').text('USDC');
+    $('#srhbrbrdbdr').text('USDT');
   }
 
   // 支付时间倒计时
