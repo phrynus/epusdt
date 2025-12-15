@@ -95,7 +95,7 @@ POST /api/v1/order/create-transaction
 |» amount|body|number| 是 | 支付金额(CNY) | 小数点保留后2位，最少0.01 |
 |» notify_url|body|string| 是 | 异步回调地址    |           |
 |» redirect_url|body|string| 否 | 同步跳转地址    ||
-|» chain_type|body|string| 否 | 区块链类型    | TRC20、ERC20、BEP20、SOLANA，默认TRC20 |
+|» chain_type|body|string| 否 | 区块链类型    | TRC20、ERC20、BEP20、SOLANA、POLYGON、ARBITRUM，默认TRC20 |
 |» signature|body|string| 是 | 签名        | 接口统一加密方式              |
 
 > 返回示例
@@ -139,7 +139,7 @@ POST /api/v1/order/create-transaction
 | »» amount          | float | 请求支付金额    | CNY,保留2位小数                    |
 | »» actual_amount   | float   | 实际需要支付的金额 | USDT,保留四位小数                   |
 | »» token           | string  | 钱包地址      |                               |
-| »» chain_type      | string  | 区块链类型     | TRC20、ERC20、BEP20、SOLANA        |
+| »» chain_type      | string  | 区块链类型     | TRC20、ERC20、BEP20、SOLANA、POLYGON、ARBITRUM        |
 | »» expiration_time | integer | 过期时间      | 时间戳秒                          |
 | »» payment_url     | string  | 收银台地址     |                               |
 | » request_id       | string  | 请求ID      |                               |
@@ -236,7 +236,7 @@ POST 【异步回调地址】
 |» amount|body| float  | 是 | 支付金额(CNY)           | 小数点保留后2位 |
 |» actual_amount|body| float  | 是 | 实际需要支付的usdt金额(USDT) | 小数点保留后4位 |
 |» token|body| string | 是 | 钱包地址                | |
-|» chain_type|body| string | 是 | 区块链类型               | TRC20、ERC20、BEP20、SOLANA |
+|» chain_type|body| string | 是 | 区块链类型               | TRC20、ERC20、BEP20、SOLANA、POLYGON、ARBITRUM |
 |» block_transaction_id|body| string | 是 | 区块交易号               |  |
 |» signature|body| string | 是 | 签名                  |                 |
 |» status|body| int    | 是 | 订单状态                | 1：等待支付，2：支付成功，3：已过期        | 

@@ -7,6 +7,7 @@ import (
 	"github.com/assimon/luuu/mq"
 	"github.com/assimon/luuu/task"
 	"github.com/assimon/luuu/telegram"
+	"github.com/assimon/luuu/util/http_client"
 	"github.com/assimon/luuu/util/log"
 
 	// 初始化区块链服务
@@ -24,6 +25,8 @@ func Start() {
 	config.Init()
 	// 日志加载
 	log.Init()
+	// 测试代理可用性
+	http_client.TestProxy()
 	// MySQL启动
 	dao.MysqlInit()
 	// 队列启动

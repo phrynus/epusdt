@@ -19,5 +19,4 @@ func main() {
 	bootstrap.Start()
 }
 
-// garble build -o epusdt_mix.exe -trimpath -ldflags="-s -w"
 // go run . http start

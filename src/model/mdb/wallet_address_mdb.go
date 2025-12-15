@@ -9,12 +9,12 @@ const (
 
 // 链类型常量
 const (
-	ChainTypeTRC20   = "TRC20"   // 波场
-	ChainTypeERC20   = "ERC20"   // 以太坊
-	ChainTypeBEP20   = "BEP20"   // 币安智能链
-	ChainTypeSOLANA  = "SOLANA"  // Solana
-	ChainTypePOLYGON = "POLYGON" // Polygon
-	ChainTypeARB     = "ARB"     // Arbitrum
+	ChainTypeTRC20   = "TRC20"    // 波场
+	ChainTypeERC20   = "ERC20"    // 以太坊
+	ChainTypeBEP20   = "BEP20"    // 币安智能链
+	ChainTypeSOLANA  = "SOLANA"   // Solana
+	ChainTypePOLYGON = "POLYGON"  // Polygon
+	ChainTypeARB     = "ARBITRUM" // Arbitrum
 )
 
 // WalletAddress  钱包表

@@ -299,7 +299,7 @@ func ShowChainTypeMenu(c tb.Context) error {
 		{{Text: "ERC20 (以太坊)", Data: "select_chain:ERC20"}},
 		{{Text: "BEP20 (币安链)", Data: "select_chain:BEP20"}},
 		{{Text: "POLYGON (Polygon)", Data: "select_chain:POLYGON"}},
-		{{Text: "ARB (Arbitrum)", Data: "select_chain:ARB"}},
+		{{Text: "ARB (Arbitrum)", Data: "select_chain:ARBITRUM"}},
 		{{Text: "SOLANA", Data: "select_chain:SOLANA"}},
 		{{Text: "返回", Data: "back_to_list"}},
 	}

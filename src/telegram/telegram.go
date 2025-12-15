@@ -5,6 +5,7 @@ import (
 
 	"github.com/assimon/luuu/config"
 	"github.com/assimon/luuu/notify"
+	"github.com/assimon/luuu/util/http_client"
 	"github.com/assimon/luuu/util/log"
 	tb "gopkg.in/telebot.v3"
 	"gopkg.in/telebot.v3/middleware"
@@ -19,9 +20,11 @@ func BotStart() {
 		Token:  config.TgBotToken,
 		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
 	}
-	if config.TgProxy != "" {
-		botSetting.URL = config.TgProxy
-	}
+	// 配置 HTTP 客户端
+	client := http_client.GetHttpClient()
+	client.SetTimeout(time.Duration(1 * time.Minute))
+	botSetting.Client = client.GetClient()
+
 	bots, err = tb.NewBot(botSetting)
 	if err != nil {
 		log.Sugar.Error(err.Error())

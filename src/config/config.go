@@ -21,7 +21,7 @@ var (
 	LogSavePath              string
 	StaticPath               string
 	TgBotToken               string
-	TgProxy                  string
+	Proxy                    string // 全局代理地址
 	TgManage                 int64
 	UsdtRate                 float64
 	EtherscanApiKey          string
@@ -75,7 +75,7 @@ func Init() {
 		MysqlDatabase = "epusdt"
 	}
 	TgBotToken = viper.GetString("tg_bot_token")
-	TgProxy = viper.GetString("tg_proxy")
+	Proxy = viper.GetString("proxy")
 	TgManage = viper.GetInt64("tg_manage")
 	EtherscanApiKey = viper.GetString("etherscan_api_key")
 	BscScanApiKey = viper.GetString("bscscan_api_key")
