@@ -1,0 +1,38 @@
+name: Upstream Sync
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: "0 2 * * *"        # 每天 UTC 02:00 执行（可按需调整）
+  workflow_dispatch:            # 支持在 Actions 页面手动触发
+
+jobs:
+  sync_latest_from_upstream:
+    name: Sync latest commits from upstream
+    runs-on: ubuntu-latest
+    if: ${{ github.event.repository.fork }}   # 只在 Fork 仓库中运行
+
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          ref: master                  # 你的目标分支
+          persist-credentials: false   # 避免与 action 内置的 token 机制冲突
+
+      - name: Sync upstream changes
+        id: sync
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+        with:
+          upstream_sync_repo: GMWalletApp/epusdt   # ⚠️ 请确认上游仓库是否仍可访问
+          upstream_sync_branch: master                # 若上游默认分支为 main，请改为 main
+          target_sync_branch: master                  # 你的 Fork 分支，即 master
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync check
+        if: failure()
+        run: |
+          echo "[Error] 同步失败，请检查日志。"
+          echo "[Error] 若上游有 .github/workflows/ 文件变更，GITHUB_TOKEN 可能权限不足，需配置具有 workflow 权限的 PAT，或手动执行一次 Sync fork。"
+          exit 1
