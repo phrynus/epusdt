@@ -54,9 +54,14 @@ func Open(path string) (*Store, error) {
  DELETE FROM scan_gaps WHERE network=OLD.network;
  DELETE FROM scan_edges WHERE network=OLD.network;
  END;
+ CREATE TABLE IF NOT EXISTS transaction_sources(network TEXT NOT NULL, hash TEXT NOT NULL, source TEXT NOT NULL, PRIMARY KEY(network,hash,source)) WITHOUT ROWID;
  CREATE TABLE IF NOT EXISTS deliveries(id INTEGER PRIMARY KEY AUTOINCREMENT, consumer TEXT NOT NULL, network TEXT NOT NULL, payload BLOB NOT NULL);
  CREATE INDEX IF NOT EXISTS by_network_delivery ON deliveries(consumer,network,id);`)
 	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = upgradeScanSources(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -216,6 +221,27 @@ func (s *Store) complete(ctx context.Context, network string, span chains.Span, 
 	return nil
 }
 
+// Older rows retain their source exclusions. Their block height and fallback
+// status were not recorded and cannot establish a height-qualified absence.
+func upgradeScanSources(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var upgraded bool
+	if err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM pragma_table_info('transaction_sources') WHERE name='height')").Scan(&upgraded); err != nil {
+		return err
+	}
+	if !upgraded {
+		if _, err = tx.Exec(`ALTER TABLE transaction_sources ADD COLUMN height INTEGER NOT NULL DEFAULT -1;
+ALTER TABLE transaction_sources ADD COLUMN fallback INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) enqueue(ctx context.Context, tx *sql.Tx, network string, events []chains.Activity, notify map[string]bool) error {
 	watchers, err := s.addressIndex(ctx, tx, network)
 	if err != nil {
@@ -237,6 +263,17 @@ func (s *Store) enqueue(ctx context.Context, tx *sql.Tx, network string, events 
 			for _, c := range watchers[a] {
 				if e.Height >= c.from && (!c.to.Valid || e.Height <= c.to.Int64) {
 					targets[c.consumer] = append(targets[c.consumer], a)
+				}
+			}
+		}
+		if len(targets) > 0 && len(e.ScanSources) > 0 {
+			hash, err := chains.TransactionHash(network, e.TxID)
+			if err == nil {
+				for _, source := range e.ScanSources {
+					if _, err := tx.ExecContext(ctx, `INSERT INTO transaction_sources(network,hash,source,height,fallback) VALUES(?,?,?,?,?)
+ON CONFLICT(network,hash,source) DO UPDATE SET height=max(height,excluded.height),fallback=min(fallback,excluded.fallback)`, network, hash, source, e.Height, e.ScanFallback); err != nil {
+						return err
+					}
 				}
 			}
 		}

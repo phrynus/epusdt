@@ -3,7 +3,10 @@ package nodes
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/tidwall/gjson"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -13,7 +16,7 @@ import (
 	"github.com/GMWalletApp/ChainScanner/internal/engine"
 )
 
-func TestFallbackPairsThroughAdminAndStrictAPI(t *testing.T) {
+func TestFallbackSelectionThroughAdminAndStrictAPI(t *testing.T) {
 	store, err := engine.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +35,7 @@ func TestFallbackPairsThroughAdminAndStrictAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := func(method, path, body, token string, status int) {
+	call := func(method, path, body, token string, status int) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -41,6 +44,7 @@ func TestFallbackPairsThroughAdminAndStrictAPI(t *testing.T) {
 		if w.Code != status {
 			t.Fatalf("%s %s: %d %s", method, path, w.Code, w.Body.String())
 		}
+		return w
 	}
 	for _, host := range []string{"regular.example", "paid-one.example", "paid-two.example"} {
 		path := "/v1/admin/nodes"
@@ -49,27 +53,114 @@ func TestFallbackPairsThroughAdminAndStrictAPI(t *testing.T) {
 		}
 		call("POST", path, `{"network":"base","url":"https://`+host+`","protocol":"http"}`, admin, 201)
 	}
-	r.lookup.probe = func(context.Context, chains.Network, bool) error { return nil }
-	var mu sync.Mutex
-	calls := map[string]int{}
-	r.lookup.read = func(_ context.Context, n chains.Network, _ string, _ bool) (json.RawMessage, error) {
-		mu.Lock()
-		calls[n.URL]++
-		mu.Unlock()
-		return json.RawMessage(`{"tx":"ok"}`), nil
+	r.lookup.probe = func(context.Context, chains.Network, bool) (int64, error) { return 100, nil }
+	sample, err := os.ReadFile("../chains/testdata/strict/evm.json")
+	if err != nil {
+		t.Fatal(err)
 	}
-	path := "/v1/transactions/base/0x" + strings.Repeat("ab", 32) + "/strict"
-	call("GET", path, "", client, 200)
-	call("GET", path+"?fallback_only=true", "", client, 200)
-	if len(calls) != 2 || calls["https://paid-one.example"] != 2 || calls["https://paid-two.example"] != 2 {
+	hash := gjson.GetBytes(sample, "transaction.hash").Str
+	var mu sync.Mutex
+	var calls []string
+	var fallbackErr error
+	var fallbackBody json.RawMessage = sample
+	r.lookup.read = func(_ context.Context, n chains.Network, h string, _ bool) (json.RawMessage, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if h != hash {
+			t.Errorf("unexpected hash %s", h)
+		}
+		calls = append(calls, n.URL)
+		if strings.Contains(n.URL, "paid-") {
+			return fallbackBody, fallbackErr
+		}
+		return sample, nil
+	}
+	path := "/v1/transactions/base/" + hash
+	check := func(suffix string, wantCode, wantCalls int) {
+		t.Helper()
+		calls = nil
+		w := call("GET", path+suffix, "", client, wantCode)
+		if len(calls) != wantCalls {
+			t.Fatalf("%s: calls %v, response %s", suffix, calls, w.Body.String())
+		}
+		if w.Code == 200 && gjson.Get(w.Body.String(), "result.transaction.hash").Str != hash {
+			t.Fatal("wrong transaction", w.Body.String())
+		}
+	}
+	check("", 200, 1)
+	check("?fallback_only=true", 200, 1)
+	if !strings.Contains(calls[0], "paid-") {
 		t.Fatal(calls)
 	}
 	call("PUT", "/v1/admin/blacklist/keyword:paid-two", "", admin, 204)
-	call("GET", path+"?fallback_only=true", "", client, 503)
-	call("GET", path, "", client, 200)
-	if calls["https://regular.example"] != 1 || calls["https://paid-two.example"] != 2 {
+	check("?fallback_only=true", 200, 1)
+	// A pending transaction is retryable.
+	fallbackBody = json.RawMessage(`{"receipt":null}`)
+	check("?fallback_only=true", 502, 1)
+	// The next regular endpoint can verify after a retryable fallback failure.
+	call("POST", "/v1/admin/nodes", `{"network":"base","url":"https://regular-two.example","protocol":"http"}`, admin, 201)
+	for _, tc := range []struct {
+		raw json.RawMessage
+		err error
+	}{
+		{fallbackBody, nil}, {json.RawMessage(`{}`), nil}, {nil, errors.New("upstream unavailable")},
+	} {
+		fallbackBody, fallbackErr = tc.raw, tc.err
+		check("", 200, 2)
+		if !strings.Contains(calls[0], "paid-one") || !strings.Contains(calls[1], "regular") {
+			t.Fatal(calls)
+		}
+	}
+	// A legacy or originally regular source stays excluded even if it is now a fallback.
+	fallbackBody, fallbackErr = sample, nil
+	id := chains.SourceIDs(chains.Network{Name: "base", URL: "https://paid-one.example/other-key"})[0]
+	if _, err := r.db.Exec("INSERT INTO transaction_sources(network,hash,source) VALUES(?,?,?)", "base", hash, id); err != nil {
+		t.Fatal(err)
+	}
+	check("?observed=true", 200, 1)
+	if !strings.Contains(calls[0], "regular") {
 		t.Fatal(calls)
 	}
+	check("?fallback_only=true&observed=true", 503, 0)
+	// A fallback that actually supplied the block may serve its own recheck.
+	if _, err := r.db.Exec("UPDATE transaction_sources SET height=100,fallback=1 WHERE source=?", id); err != nil {
+		t.Fatal(err)
+	}
+	w := call("GET", path+"?observed=true&fallback_only=true", "", client, 200)
+	if got := w.Header().Get("X-ChainScanner-Scan-Source"); got != "fallback_reused" {
+		t.Fatal(got)
+	}
+	fallbackErr = chains.ErrTransactionMissing
+	for _, tc := range []struct {
+		head          int64
+		status, reads int
+	}{
+		{99, 502, 1}, {100, 502, 1}, {101, 404, 2},
+	} {
+		calls = nil
+		r.lookup.probe = func(_ context.Context, n chains.Network, _ bool) (int64, error) {
+			if !strings.Contains(n.URL, "paid-one") {
+				t.Fatal(n.URL)
+			}
+			return tc.head, nil
+		}
+		w := call("GET", path+"?observed=true&fallback_only=true", "", client, tc.status)
+		if (w.Header().Get("X-ChainScanner-Height-Checked") == "true") != (tc.head > 100) || len(calls) != tc.reads {
+			t.Fatal(tc, w.Header(), calls)
+		}
+	}
+	// A caller cannot lower the stored height, and older confirmation jobs
+	// can supply the height of the scan event that was persisted by EPUSDT.
+	check("?observed=true&observed_height=101&fallback_only=true", 502, 1)
+	if _, err := r.db.Exec("UPDATE transaction_sources SET height=-1 WHERE source=?", id); err != nil {
+		t.Fatal(err)
+	}
+	check("?observed=true&fallback_only=true", 502, 1)
+	check("?observed=true&observed_height=100&fallback_only=true", 404, 2)
+	// A qualified absence still allows another eligible provider to find it.
+	check("?observed=true&observed_height=100", 200, 3)
+	call("GET", path+"/strict", "", client, 404)
+
 }
 
 func TestRepairsRotateIndependentlyOfFreshBlocks(t *testing.T) {
@@ -87,7 +178,7 @@ func TestRepairsRotateIndependentlyOfFreshBlocks(t *testing.T) {
 	}
 }
 
-func TestTONFallbackIndexesVoteWithoutPublicLocator(t *testing.T) {
+func TestTONFallbackIndexEligibleWithoutPublicLocator(t *testing.T) {
 	store, err := engine.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -104,19 +195,15 @@ func TestTONFallbackIndexesVoteWithoutPublicLocator(t *testing.T) {
 			t.Fatal(n, err)
 		}
 	}
-	nodes, err := r.lookupCandidates(ctx, "ton", true)
+	nodes, err := r.lookupCandidates(ctx, "ton", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.lookup.probe = func(context.Context, chains.Network, bool) error { return nil }
-	group, _ := r.tonGroup(ctx, nodes, map[string]bool{}, "unused-hash")
-	if len(group) != 2 {
-		t.Fatal("missing funded TON pair")
-	}
-	for _, v := range group {
-		v.release()
-		if !v.fallback || v.cfg.Protocol != "toncenter-v3" {
-			t.Fatal(v.cfg)
+	r.lookup.probe = func(context.Context, chains.Network, bool) (int64, error) { return 100, nil }
+	for _, c := range nodes {
+		if c.fallback && c.cfg.Protocol == "toncenter-v3" {
+			return
 		}
 	}
+	t.Fatal("no configured TON index available for transaction lookup")
 }

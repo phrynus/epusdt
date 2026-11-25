@@ -15,6 +15,7 @@ import (
 
 	scanner "github.com/GMWalletApp/ChainScanner"
 	tron "github.com/GMWalletApp/epusdt/crypto"
+	"github.com/GMWalletApp/epusdt/internal/diagnostics"
 	"github.com/GMWalletApp/epusdt/model/data"
 	"github.com/GMWalletApp/epusdt/model/mdb"
 	addressutil "github.com/GMWalletApp/epusdt/util/address"
@@ -75,50 +76,26 @@ func SetManualOrderPaymentValidatorForTest(fn func(*mdb.Orders, string) (string,
 func validateManualOrderPaymentDefault(order *mdb.Orders, blockTransactionID string) (string, error) {
 	id, err := validateManualTransfer(order, blockTransactionID)
 	if err != nil {
-		if StrictTransaction == nil {
-			return "", err
-		}
-		id, err = canonicalManualStrictTxID(order, blockTransactionID)
+		return "", err
+	}
+	if LookupPaymentTransaction == nil {
+		return "", fmt.Errorf("transaction lookup unavailable")
+	}
+	hash := id
+	if order.Network == mdb.NetworkTon {
+		ref, err := parseManualTonTxRef(id)
 		if err != nil {
 			return "", err
 		}
-		if err := ensureManualBlockTransactionUnused(order, id); err != nil {
-			return "", err
-		}
-	}
-	if StrictTransaction == nil {
-		return "", fmt.Errorf("strict lookup unavailable")
+		hash = ref.HashHex
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	if err := confirmManualTransfer(ctx, order, id, StrictTransaction); err != nil {
+	ctx = diagnostics.WithOrder(ctx, order.TradeId, order.ParentTradeId, order.OrderId, order.ID)
+	if _, err := LookupPaymentTransaction(ctx, order.Network, hash); err != nil {
 		return "", err
 	}
 	return id, nil
-}
-
-func canonicalManualStrictTxID(order *mdb.Orders, blockTransactionID string) (string, error) {
-	if order == nil || order.ID == 0 {
-		return "", fmt.Errorf("order not found")
-	}
-	txID := strings.TrimSpace(blockTransactionID)
-	if txID == "" {
-		return "", fmt.Errorf("block_transaction_id is required")
-	}
-	network := strings.ToLower(strings.TrimSpace(order.Network))
-	switch {
-	case scanner.IsEVM(network):
-		_, canonicalTxID, err := canonicalEvmHash(txID)
-		return canonicalTxID, err
-	case network == mdb.NetworkTron:
-		return normalizeTronTxID(txID)
-	case network == mdb.NetworkAptos:
-		return normalizeAptosTxID(txID), nil
-	case network == mdb.NetworkSolana, network == mdb.NetworkSui:
-		return txID, nil
-	default:
-		return "", fmt.Errorf("unsupported manual payment verification network: %s", order.Network)
-	}
 }
 
 func validateManualTransfer(order *mdb.Orders, blockTransactionID string) (string, error) {

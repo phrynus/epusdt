@@ -2,14 +2,10 @@ package nodes
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
-	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/GMWalletApp/ChainScanner/internal/chains"
@@ -17,161 +13,243 @@ import (
 
 func (r *NodeRegistry) transactionHandler(configured map[string]chains.Network) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/transactions/{network}/{hash}", r.lookupHandler(configured, false))
-	mux.HandleFunc("GET /v1/transactions/{network}/{hash}/strict", r.lookupHandler(configured, true))
-	return mux
-}
-
-func (r *NodeRegistry) lookupHandler(configured map[string]chains.Network, strict bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) {
+	mux.HandleFunc("GET /v1/transactions/{network}/{hash}", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		n := req.PathValue("network")
-		if _, ok := configured[n]; !ok {
+		network := req.PathValue("network")
+		if _, ok := configured[network]; !ok {
 			http.Error(w, "network is not configured", 400)
 			return
 		}
-		hash, err := chains.TransactionHash(n, req.PathValue("hash"))
+		hash, err := chains.TransactionHash(network, req.PathValue("hash"))
 		if err != nil {
 			http.Error(w, "invalid transaction hash", 400)
 			return
 		}
-		ctx := req.Context()
-		count, rounds := 1, 1
-		if strict {
-			count, rounds = strictGroupSize, 2
-		}
-		params := req.URL.Query()
-		fallbackOnly := params.Get("fallback_only") == "true"
-		if params.Has("fallback_only") && (!strict || !fallbackOnly || len(params["fallback_only"]) != 1) {
-			http.Error(w, "fallback_only=true requires strict lookup", http.StatusBadRequest)
+		ctx, cancel := context.WithTimeout(req.Context(), 38*time.Second)
+		defer cancel()
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(45 * time.Second))
+		q := req.URL.Query()
+		sources, err := r.scanSources(ctx, network, hash)
+		if err != nil || q.Get("observed") == "true" && len(sources.all) == 0 {
+			http.Error(w, "scan source unavailable", 503)
 			return
 		}
-		single := strict && params.Get("rounds") == "1"
-		if strict && req.URL.Query().Has("rounds") && !single {
-			http.Error(w, "rounds must be 1 when supplied", 400)
+		if q.Has("observed_height") {
+			height, err := strconv.ParseInt(q.Get("observed_height"), 10, 64)
+			if err != nil || height < 0 || q.Get("observed") != "true" {
+				http.Error(w, "invalid observed_height", 400)
+				return
+			}
+			sources.height = max(sources.height, height)
+		}
+		candidates, err := r.lookupCandidates(ctx, network, q.Get("manual") == "true")
+		if err != nil {
+			http.Error(w, errCapacity.Error(), 503)
 			return
 		}
-		omitted := map[string]bool{}
-		if single {
-			rounds = 1
-			omitted, err = previousVoters(req.Header.Get("X-ChainScanner-Exclude"))
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-		}
-		if strict {
-			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(45 * time.Second))
-		}
-		used := map[string]bool{}
-		lastStatus := http.StatusBadGateway
-
-		for attempt := 1; attempt <= rounds; attempt++ {
-			if ctx.Err() != nil {
-				return
-			}
-			if strict {
-				w.Header().Set("X-ChainScanner-Strict-Rounds", strconv.Itoa(attempt))
-			}
-			candidates, err := r.lookupCandidates(ctx, n, strict, params.Get("manual") == "true")
-			if err != nil {
-				lastStatus = http.StatusServiceUnavailable
+		eligible := candidates[:0]
+		for _, c := range candidates {
+			if q.Get("fallback_only") == "true" && !c.fallback {
 				continue
 			}
-			if fallbackOnly {
-				candidates = slices.DeleteFunc(candidates, func(c lookupCandidate) bool { return !c.fallback })
-			}
-			if len(omitted) > 0 {
-				for _, c := range candidates {
-					if omitted[voterToken(c.key)] || c.peerID != "" && omitted[voterToken(c.peerID)] {
-						used[c.key] = true
+			c.sourceStatus = "unobserved"
+			if len(sources.all) > 0 {
+				c.sourceStatus = "excluded"
+				if chains.SharesScanSource(c.cfg, sources.all) {
+					if !c.fallback || chains.SharesScanSource(c.cfg, sources.regular) {
+						continue
 					}
+					c.sourceStatus = "fallback_reused"
 				}
 			}
-			var group []lookupLease
-			read := transactionReader(r.lookup.read)
-			if strict && n == "ton" {
-				group, read = r.tonGroup(ctx, candidates, used, hash)
-			} else {
-				group = r.lookup.group(ctx, candidates, used, count)
+			eligible = append(eligible, c)
+		}
+		r.lookup.prioritize(eligible)
+		var trace *[]LookupAttempt
+		if req.Header.Get("X-ChainScanner-Lookup-Trace") == "1" {
+			trace = new([]LookupAttempt)
+		}
+		raw, source, err := r.lookupHash(ctx, eligible, hash, sources.height, trace)
+		if trace != nil && len(*trace) > 0 {
+			b, _ := json.Marshal(*trace)
+			w.Header().Set("X-ChainScanner-Lookup-Trace", string(b))
+		}
+		if source != "" {
+			w.Header().Set("X-ChainScanner-Scan-Source", source)
+		}
+		switch {
+		case err == nil:
+			writeTransactionResult(w, network, hash, raw)
+		case errors.Is(err, chains.ErrTransactionMissing):
+			w.Header().Set("X-ChainScanner-Evidence", "not_found")
+			if source != "unobserved" {
+				w.Header().Set("X-ChainScanner-Height-Checked", "true")
 			}
-			if len(group) == 0 {
-				lastStatus = http.StatusServiceUnavailable
+			http.Error(w, "transaction not found", 404)
+		case errors.Is(err, errCapacity):
+			http.Error(w, errCapacity.Error(), 503)
+		default:
+			if reason := lookupEvidenceReason(err); reason != "" {
+				w.Header().Set("X-ChainScanner-Evidence", reason)
+			}
+			http.Error(w, errLookup.Error(), 502)
+		}
+	})
+	return mux
+}
+
+type scanSources struct {
+	all, regular map[string]bool
+	height       int64
+}
+
+func (r *NodeRegistry) scanSources(ctx context.Context, network, hash string) (scanSources, error) {
+	sources := scanSources{all: map[string]bool{}, regular: map[string]bool{}, height: -1}
+	rows, err := r.db.QueryContext(ctx, "SELECT source,height,fallback FROM transaction_sources WHERE network=? AND hash=?", network, hash)
+	if err != nil {
+		return sources, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var height int64
+		var fallback bool
+		if err := rows.Scan(&key, &height, &fallback); err != nil {
+			return sources, err
+		}
+		sources.height = max(sources.height, height)
+		sources.all[key] = true
+		if !fallback {
+			sources.regular[key] = true
+		}
+	}
+	return sources, rows.Err()
+}
+
+// Try each available provider before reusing one. With a small pool rotate
+// through alternatives until the initial read and three retries have run.
+func (r *NodeRegistry) lookupHash(ctx context.Context, candidates []lookupCandidate, hash string, height int64, trace *[]LookupAttempt) (json.RawMessage, string, error) {
+	attempts := 0
+	lastKey := ""
+	lastErr := errCapacity
+	pending := false
+	missingSource := ""
+	qualifiedMissing := make(map[string]bool)
+	for ctx.Err() == nil {
+		before := attempts
+		seen := map[string]bool{}
+		for _, c := range candidates {
+			if ctx.Err() != nil {
+				return nil, "", ctx.Err()
+			}
+			if attempts >= 4 {
+				break
+			}
+			if qualifiedMissing[c.key] || seen[c.key] || c.key == lastKey || !r.lookup.ready(c.version, time.Now()) {
 				continue
 			}
-			if single {
-				w.Header().Set("X-ChainScanner-Pair", pairHeader(group))
+			release, ok := r.lookup.lanes.tryLookup(c.key, true)
+			if !ok {
+				continue
 			}
-			v, err := r.lookup.round(ctx, group, hash, read)
-			lastStatus = http.StatusBadGateway
-			if err == nil && r.groupAllowed(ctx, group) {
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(struct {
-					Network string          `json:"network"`
-					Hash    string          `json:"hash"`
-					Result  json.RawMessage `json:"result"`
-				}{n, hash, v})
-				return
+			seen[c.key] = true
+			lastKey = c.key
+			attempts++
+			call, cancel := context.WithTimeout(ctx, 8*time.Second)
+			started := time.Now()
+			var attempt *LookupAttempt
+			if trace != nil && len(*trace) < 32 {
+				attempt = &LookupAttempt{}
 			}
-			if !strict && errors.Is(err, chains.ErrTransactionMissing) {
-				http.Error(w, "transaction not found", 404)
-				return
+			raw, err := r.lookupAtObservedHeight(call, c, candidates, hash, height, attempt)
+			cancel()
+			release()
+			if ctx.Err() != nil {
+				return nil, "", ctx.Err()
 			}
+			r.lookup.record(c.version, err)
+			allowed := r.lookupAllowed(ctx, c)
+			if attempt != nil {
+				attempt.NodeID = c.version.id
+				attempt.Fallback = c.fallback
+				attempt.Reused = c.sourceStatus == "fallback_reused"
+				attempt.Result = lookupOutcome(err)
+				if !allowed {
+					attempt.Result = "configuration_changed"
+				}
+				attempt.LatencyMS = time.Since(started).Milliseconds()
+				*trace = append(*trace, *attempt)
+			}
+			if !allowed {
+				lastErr = errLookup
+				continue
+			}
+			if err == nil {
+				return raw, c.sourceStatus, nil
+			}
+			if errors.Is(err, chains.ErrTransactionMissing) {
+				qualifiedMissing[c.key] = true
+				missingSource = c.sourceStatus
+				lastErr = err
+				continue
+			}
+			if errors.Is(err, chains.ErrTransactionPending) {
+				pending = true
+			}
+			lastErr = err
 		}
-		if strict && !single {
-			w.Header().Set("X-ChainScanner-Manual-Review", "required")
-		}
-		if lastStatus == http.StatusServiceUnavailable {
-			http.Error(w, errCapacity.Error(), lastStatus)
-		} else {
-			http.Error(w, errAgreement.Error(), lastStatus)
+		if attempts == before || attempts >= 4 {
+			break
 		}
 	}
+	if pending {
+		return nil, "", chains.ErrTransactionPending
+	}
+	if missingSource != "" {
+		allMissing := len(candidates) > 0
+		for _, c := range candidates {
+			if !qualifiedMissing[c.key] {
+				allMissing = false
+				break
+			}
+		}
+		if allMissing {
+			return nil, missingSource, chains.ErrTransactionMissing
+		}
+		if errors.Is(lastErr, chains.ErrTransactionMissing) {
+			return nil, "", errLookup
+		}
+		return nil, "", lastErr
+	}
+	return nil, "", lastErr
 }
 
-func previousVoters(header string) (map[string]bool, error) {
-	if header == "" {
-		return nil, nil
-	}
-	tokens := strings.SplitN(header, ",", 5)
-	if len(tokens) > 4 {
-		return nil, errors.New("invalid previous pair")
-	}
-	voters := make(map[string]bool, len(tokens))
-	for _, token := range tokens {
-		digest, err := hex.DecodeString(token)
-		if err != nil || len(digest) != sha256.Size {
-			return nil, errors.New("invalid previous pair")
-		}
-		voters[strings.ToLower(token)] = true
-	}
-	return voters, nil
+func writeTransactionResult(w http.ResponseWriter, network, hash string, result json.RawMessage) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Network string          `json:"network"`
+		Hash    string          `json:"hash"`
+		Result  json.RawMessage `json:"result"`
+	}{network, hash, result})
 }
 
-func pairHeader(group []lookupLease) string {
-	var tokens []string
-	for _, lease := range group {
-		tokens = append(tokens, voterToken(lease.key))
-		if lease.peerID != "" {
-			tokens = append(tokens, voterToken(lease.peerID))
-		}
+func lookupEvidenceReason(err error) string {
+	switch {
+	case errors.Is(err, chains.ErrTransactionData):
+		return "incomplete"
+	case errors.Is(err, chains.ErrTransactionPending):
+		return "pending"
+	default:
+		return ""
 	}
-	return strings.Join(tokens, ",")
 }
-
-func voterToken(key string) string { h := sha256.Sum256([]byte(key)); return hex.EncodeToString(h[:]) }
 
 // A rule can change while a provider is reading the transaction.
-func (r *NodeRegistry) groupAllowed(ctx context.Context, group []lookupLease) bool {
-	blocked := r.blacklist.hosts()
-	for _, node := range group {
-		current, err := r.get(ctx, node.version.id)
-		if err != nil || !current.Enabled || current.version() != node.version {
-			return false
-		}
-		if blocked.matches(node.primaryURL) || blocked.matches(node.cfg.URL) {
-			return false
-		}
+func (r *NodeRegistry) lookupAllowed(ctx context.Context, node lookupCandidate) bool {
+	current, err := r.get(ctx, node.version.id)
+	if err != nil || !current.Enabled || current.version() != node.version {
+		return false
 	}
-	return true
+	blocked := r.blacklist.hosts()
+	return !blocked.matches(node.primaryURL) && !blocked.matches(node.cfg.URL)
 }
